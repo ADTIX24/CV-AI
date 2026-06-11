@@ -1,0 +1,8 @@
+{
+  "name": "CV AI",
+  "description": "Professional 3D interactive AI-powered CV constructor with secure watermark preview, recharge system, and admin panel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

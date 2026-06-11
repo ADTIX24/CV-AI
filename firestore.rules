@@ -1,0 +1,97 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reuseable Global Security Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && 
+             request.auth.token.email_verified == true && 
+             request.auth.token.email == 'veira1x1@gmail.com';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Entity Data Verification Helpers
+    function isValidClientAccount(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.name is string && data.name.size() <= 256
+          && data.email is string && data.email.size() <= 256
+          && data.credits is int && data.credits >= 0 && data.credits <= 10000
+          && data.resumesCreated is int && data.resumesCreated >= 0
+          && data.joinedAt is string && data.joinedAt.size() <= 64;
+    }
+
+    function isValidCVProfile(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.fullName is string && data.fullName.size() <= 256
+          && data.email is string && data.email.size() <= 256;
+    }
+
+    function isValidVoucher(data) {
+      return data.code is string && data.code.size() <= 128
+          && data.value is number && data.value >= 0 && data.value <= 100
+          && data.active is bool
+          && data.groupName is string && data.groupName.size() <= 256
+          && data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    function isValidAppConfig(data) {
+      return data.appName is string && data.appName.size() <= 256
+          && data.registerGiftCredits is int && data.registerGiftCredits >= 0;
+    }
+
+    // Rules matching resources in the Firebase blueprint
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) && isValidId(userId) && isValidClientAccount(incoming());
+      allow update: if (isOwner(userId) && isValidClientAccount(incoming())) || isAdmin();
+      allow delete: if isAdmin();
+
+      // Subcollection for client-owned resumes
+      match /resumes/{resumeId} {
+        allow get: if isOwner(userId) || isAdmin();
+        allow list: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) && isValidId(resumeId) && isValidCVProfile(incoming());
+        allow update: if isOwner(userId) && isValidCVProfile(incoming());
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    match /vouchers/{voucherCode} {
+      allow get: if isSignedIn();
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(voucherCode) && isValidVoucher(incoming());
+      allow update: if isSignedIn() && isValidVoucher(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /config/{configId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidAppConfig(incoming());
+    }
+  }
+}
