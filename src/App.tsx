@@ -242,13 +242,16 @@ export default function App() {
             try {
               await setDoc(userDocRef, newUserObj);
               console.log("Successfully created user profile document in Firestore as:", newUserObj);
+              setUserCredits(signupGift);
             } catch (setErr: any) {
               console.error("Could not write initial user doc to Firestore. Error:", setErr?.message || setErr);
+              // Fallback to offline cached credits
+              const cachedCredits = localStorage.getItem('cv_ai_user_credits');
+              setUserCredits(cachedCredits ? parseInt(cachedCredits, 10) : signupGift);
             }
-            setUserCredits(signupGift);
           } else {
             const data = userSnap.data() as ClientAccount;
-            setUserCredits(data.credits);
+            setUserCredits(data.credits !== undefined ? data.credits : 0);
             console.log("Loaded existing user profile from Firestore:", data);
           }
         } catch (e: any) {
@@ -271,7 +274,7 @@ export default function App() {
     return () => unsubscribe();
   }, [brandConfig.registerGiftCredits]);
 
-  // 2b. Real-time subscription to the logged-in user's own profile to update credits in real-time
+  // 2b. Real-time subscription to the logged-in user's own profile with active self-healing
   useEffect(() => {
     if (!isLoggedIn || !auth.currentUser) {
       return;
@@ -279,11 +282,30 @@ export default function App() {
     const userId = auth.currentUser.uid;
     const userDocRef = doc(db, 'users', userId);
 
-    const unsubscribe = onSnapshot(userDocRef, (snap) => {
+    const unsubscribe = onSnapshot(userDocRef, async (snap) => {
       if (snap.exists()) {
         const data = snap.data() as ClientAccount;
         if (data.credits !== undefined) {
           setUserCredits(data.credits);
+        }
+      } else {
+        // Self-heal: Document is authenticated but missing in Firestore (often due to historical rule errors or offline signups)
+        console.log("User doc missing in Firestore. Starting robust dynamic self-healing/creation...");
+        const signupGift = brandConfig.registerGiftCredits !== undefined ? brandConfig.registerGiftCredits : 5;
+        const newUserObj: ClientAccount = {
+          id: userId,
+          name: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'User',
+          email: auth.currentUser?.email || '',
+          credits: signupGift,
+          resumesCreated: 0,
+          joinedAt: new Date().toISOString().slice(0, 10)
+        };
+        try {
+          await setDoc(userDocRef, newUserObj);
+          console.log("Self-healing successful: Created user profile document in Firestore as:", newUserObj);
+          setUserCredits(signupGift);
+        } catch (setErr: any) {
+          console.error("Self-healing failed to write user doc to Firestore:", setErr?.message || setErr);
         }
       }
     }, (err) => {
@@ -291,7 +313,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [isLoggedIn]);
+  }, [isLoggedIn, brandConfig.registerGiftCredits]);
 
   // Redirect guest to workspace creation immediately after successful login
   useEffect(() => {
