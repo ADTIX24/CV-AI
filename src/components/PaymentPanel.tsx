@@ -60,7 +60,7 @@ export function PaymentPanel({
   };
 
   return (
-    <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 relative overflow-hidden" id="payment-billing-panel">
+    <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 sm:p-6 relative overflow-hidden" id="payment-billing-panel">
       <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-2xl pointer-events-none" />
 
       {/* Title */}
@@ -223,18 +223,18 @@ export function PaymentPanel({
       ) : (
         /* Voucher Recharge Slot */
         <div className="space-y-4 max-w-xl mx-auto">
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <input
               type="text"
               value={voucherInput}
               onChange={(e) => setVoucherInput(e.target.value.toUpperCase())}
               placeholder={t.enterVoucherPlaceholder}
-              className="flex-1 bg-zinc-900 border border-zinc-800 p-3.5 text-xs rounded-xl text-white tracking-wider font-mono placeholder:tracking-normal text-center focus:outline-none focus:border-amber-500"
+              className="w-full sm:flex-1 bg-zinc-900 border border-zinc-800 p-3.5 text-xs rounded-xl text-white tracking-wider font-mono placeholder:tracking-normal text-center focus:outline-none focus:border-amber-500"
               id="payment-voucher-field"
             />
             <button
               onClick={redeemCode}
-              className="px-5 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold rounded-xl flex items-center gap-1 transition-all shrink-0"
+              className="w-full sm:w-auto px-5 py-3.5 sm:py-0 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all shrink-0 active:scale-95 duration-150"
               id="payment-apply-voucher"
             >
               <Tag className="w-4 h-4 text-black" />
