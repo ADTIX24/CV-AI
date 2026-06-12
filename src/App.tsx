@@ -621,7 +621,7 @@ export default function App() {
           ) : (
             <div className="p-1.5 rounded-lg bg-gradient-to-tr from-violet-600 via-purple-500 to-fuchsia-600 flex items-center justify-center text-white font-black shadow-lg relative group-hover:scale-105 transition-all">
               <div className="absolute inset-0 bg-gradient-to-tr from-fuchsia-600 via-violet-500 to-cyan-500 rounded-lg blur opacity-70 group-hover:opacity-100 transition-opacity animate-pulse" />
-              <Sparkles className="w-5 h-5 relative z-10 animate-spin text-amber-350" style={{ animationDuration: '8s' }} />
+              <FileText className="w-5 h-5 relative z-10 text-white animate-pulse" />
             </div>
           )}
           <span className="text-xl font-black tracking-tight animate-logo-shine select-none">

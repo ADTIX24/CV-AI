@@ -20,8 +20,8 @@ export const translations = {
     aiPowered: "مدعوم بالذكاء الاصطناعي",
     feature1Title: "مساعد مهني ذكي",
     feature1Desc: "صياغة مخصصة وإلكترونية لخبراتك بلغة عمل دقيقة وحسنة الأسلوب.",
-    feature2Title: "تحسين الصور الشخصية",
-    feature2Desc: "إضافة بدلة رسمية أنيقة وتعديل الإضاءة والابتسامة في ثوانٍ معدودة.",
+    feature2Title: "التوافق مع أنظمة الـ ATS",
+    feature2Desc: "نصوص مهنية مدروسة وكلمات مفتاحية منسقة بذكاء لضمان تجاوز سيرتك الذاتية لأنظمة فرز الموظفين بنجاح.",
     feature3Title: "نظام أكواد التوزيع",
     feature3Desc: "دعم كامل للمكتبات والتجار بإنشاء وتصدير بطاقات شحن وتعبئة الرصيد.",
 
@@ -132,8 +132,8 @@ export const translations = {
     aiPowered: "AI-Powered Ecosystem",
     feature1Title: "Smart Career Wizard",
     feature1Desc: "Beautifully structured natural conversations resulting in perfectly framed experience bullet points.",
-    feature2Title: "AI Headshot suit-up",
-    feature2Desc: "Convert personal selfies into business headshots formatted with sleek tailored suits & radiant smiles.",
+    feature2Title: "Full ATS Compatibility",
+    feature2Desc: "Standard semantic elements structured specifically to excel during automated resume processing algorithms.",
     feature3Title: "Wholesale Vouchers",
     feature3Desc: "Generate, bundle, and export batches of recharge coupon codes customized for offline bookstores & businesses.",
 
