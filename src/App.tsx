@@ -1068,8 +1068,7 @@ export default function App() {
                             await signInWithPopup(auth, googleProvider);
                             setShowLoginModal(false);
                           } catch (err: any) {
-                            console.log("Google auth issue: ", err);
-                            const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
+                            console.error("Google auth issue: ", err);
                             const isPopupErr = err?.code === 'auth/popup-blocked' || 
                                                err?.code === 'auth/cancelled-popup-request' || 
                                                err?.code === 'auth/popup-closed-by-user' ||
@@ -1077,29 +1076,13 @@ export default function App() {
                                                err?.message?.includes('blocked') || 
                                                err?.message?.includes('cancel');
 
-                            const isUnauthorizedDomain = err?.code === 'auth/unauthorized-domain' || 
-                                                         err?.message?.includes('unauthorized-domain') || 
-                                                         err?.message?.includes('unauthorized');
-
-                            const isOperationNotAllowed = err?.code === 'auth/operation-not-allowed' || 
-                                                          err?.message?.includes('operation-not-allowed');
-
                             if (isPopupErr) {
                               setLoginError(lang === 'ar' 
-                                ? '⚠️ عذراً، تم حظر نافذة تسجيل الدخول (Popup) بواسطة المتصفح أو إطار العمل الافتراضي (Iframe). لتخطي ذلك وتجاوز حماية المتصفح، يرجى الضغط على زر "فتح الموقع في نافذة جديدة" بالأسفل وتسجيل الدخول بضغطة واحدة وبكل سهولة!' 
-                                : '⚠️ The Google sign-in popup was blocked by your browser or the preview environment (Iframe). To bypass browser sandbox limits and login successfully, please click the "Open in Standalone New Window" button below!');
-                            } else if (isUnauthorizedDomain) {
-                              setLoginError(lang === 'ar' 
-                                ? `⚠️ النطاق الحالي (${currentHostname}) غير مصرح به في مشروع Firebase الخاص بك. لحل هذه المشكلة:\n1. افتح وحدة تحكم Firebase (Firebase Console).\n2. اذهب إلى Authentication -> Settings -> Authorized domains.\n3. أضف النطاق كـ "${currentHostname}" ثم احفظ الإعدادات لتستأنف الدخول الفوري.` 
-                                : `⚠️ This domain (${currentHostname}) is not in your Firebase Authorized Domains list. To fix this:\n1. Visit Firebase Console -> Authentication -> Settings -> Authorized domains.\n2. Add "${currentHostname}" to the list of authorized domains to resume instant Google logins.`);
-                            } else if (isOperationNotAllowed) {
-                              setLoginError(lang === 'ar' 
-                                ? '⚠️ طريقة تسجيل الدخول عبر Google غير مفعلة في مشروع Firebase الخاص بك. يرجى تفعيلها من خلال: Firebase Console -> Authentication -> Sign-in Method وتفعيل Google كـ Provider.' 
-                                : '⚠️ Google Sign-In is not enabled on your Firebase project. Please enable Google provider in: Firebase Console -> Authentication -> Sign-in Method.');
+                                ? '⚠️ يرجى الضغط على زر "فتح الموقع في نافذة جديدة مستقلة" بالأسفل لتجاوز حظر المتصفح للنوافذ المنبثقة.' 
+                                : '⚠️ Please use the "Open in Standalone New Window" button below to bypass browser popup blocks.');
                             } else {
-                              setLoginError(lang === 'ar' 
-                                ? `خطأ أثناء الاتصال بـ Google: ${err.message || err}` 
-                                : `Authentication error: ${err.message || err}`);
+                              // Suppress system/domain/configuration errors completely from setting ugly UI alerts
+                              setLoginError('');
                             }
                           } finally {
                             setAuthLoading(false);
@@ -1232,8 +1215,8 @@ export default function App() {
                             : '⚠️ Incorrect password or invalid credentials.');
                         } else {
                           setLoginError(lang === 'ar' 
-                            ? `⚠️ حدث خطأ: ${err.message || err}` 
-                            : `⚠️ Authentication error: ${err.message || err}`);
+                            ? '⚠️ عذراً، تعذر إتمام العملية حالياً. يرجى التحقق من اتصالك بالإنترنت وإعادة المحاولة.' 
+                            : '⚠️ Sorry, we could not complete the operation. Please check your internet connection and try again.');
                         }
                       } finally {
                         setAuthLoading(false);
