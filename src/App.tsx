@@ -609,31 +609,31 @@ export default function App() {
       <div className="absolute -inset-y-0 inset-x-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.01)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.01)_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none opacity-[0.25]" />
 
       {/* HEADER BAR */}
-      <header className="sticky top-0 z-40 backdrop-blur-md bg-[#030712]/70 border-b border-zinc-900/80 px-4 md:px-8 py-4 flex items-center justify-between transition-all">
-        <div className="flex items-center gap-2.5 cursor-pointer animate-fade-in group" onClick={() => setActiveView('landing')}>
+      <header className="sticky top-0 z-40 backdrop-blur-md bg-[#030712]/70 border-b border-zinc-900/80 px-3 sm:px-4 md:px-8 py-2.5 sm:py-4 flex items-center justify-between transition-all">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 cursor-pointer animate-fade-in group" onClick={() => setActiveView('landing')}>
           {brandConfig.logoUrl ? (
             <img 
               src={brandConfig.logoUrl} 
               alt="Logo" 
-              className="h-9 max-w-[130px] object-contain rounded-lg p-0.5 bg-zinc-900/30 border border-zinc-800" 
+              className="h-7 sm:h-9 max-w-[100px] sm:max-w-[130px] object-contain rounded-lg p-0.5 bg-zinc-900/30 border border-zinc-800" 
               referrerPolicy="no-referrer" 
             />
           ) : (
-            <div className="p-1.5 rounded-lg bg-gradient-to-tr from-violet-600 via-purple-500 to-fuchsia-600 flex items-center justify-center text-white font-black shadow-lg relative group-hover:scale-105 transition-all">
+            <div className="p-1 sm:p-1.5 rounded-lg bg-gradient-to-tr from-violet-600 via-purple-500 to-fuchsia-600 flex items-center justify-center text-white font-black shadow-lg relative group-hover:scale-105 transition-all">
               <div className="absolute inset-0 bg-gradient-to-tr from-fuchsia-600 via-violet-500 to-cyan-500 rounded-lg blur opacity-70 group-hover:opacity-100 transition-opacity animate-pulse" />
-              <FileText className="w-5 h-5 relative z-10 text-white animate-pulse" />
+              <FileText className="w-4 h-4 sm:w-5 sm:h-5 relative z-10 text-white animate-pulse" />
             </div>
           )}
-          <span className="text-xl font-black tracking-tight animate-logo-shine select-none">
+          <span className="text-base sm:text-xl font-black tracking-tight animate-logo-shine select-none">
             {brandConfig.logoText || "CV AI"}
           </span>
         </div>
 
         {/* Navigation links & Switcher */}
-        <div className="flex items-center gap-2 md:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3">
           <button
             onClick={() => setActiveView('landing')}
-            className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-all ${
+            className={`text-[10px] sm:text-xs font-semibold px-2 py-1 sm:py-1.5 rounded-lg transition-all ${
               activeView === 'landing' ? 'text-violet-400 bg-violet-500/10' : 'text-zinc-400 hover:text-white'
             }`}
           >
@@ -641,53 +641,72 @@ export default function App() {
           </button>
           <button
             onClick={handleStartOrCreateSequence}
-            className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-all ${
+            className={`text-[10px] sm:text-xs font-semibold px-2 py-1 sm:py-1.5 rounded-lg transition-all ${
               activeView === 'workspace' ? 'text-violet-400 bg-violet-500/10' : 'text-zinc-400 hover:text-white'
             }`}
           >
-            {lang === 'ar' ? 'إنشاء سيرة ذاتية' : 'Build CV'}
+            {lang === 'ar' ? (
+              <>
+                <span className="hidden sm:inline font-sans">إنشاء سيرة ذاتية</span>
+                <span className="inline sm:hidden font-sans">إنشاء CV</span>
+              </>
+            ) : (
+              'Build CV'
+            )}
           </button>
 
           {/* Conditional Admin view trigger strictly dependent on admin email */}
           {isLoggedIn && currentUserEmail === 'veira1x1@gmail.com' && (
             <button
               onClick={() => setActiveView('admin')}
-              className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-all border border-violet-500/20 bg-violet-600/5 hover:bg-violet-600/10 text-violet-400`}
+              className={`text-[10px] sm:text-xs font-semibold px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-lg transition-all border border-violet-500/20 bg-violet-600/5 hover:bg-violet-600/10 text-violet-400`}
             >
-              👑 {lang === 'ar' ? 'لوحة تحكم كمدير' : 'Admin Panel'}
+              👑 <span className="hidden sm:inline">{lang === 'ar' ? 'الإدارة' : 'Admin'}</span>
+              <span className="inline sm:hidden">{lang === 'ar' ? 'لوحة' : 'Adm'}</span>
             </button>
           )}
 
           {/* Languages Switch Button */}
           <button
             onClick={() => setLang(lang === 'ar' ? 'en' : 'ar')}
-            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-850 transition-all text-xs flex items-center gap-1.5 font-mono cursor-pointer"
+            className="p-1.5 sm:p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-850/60 transition-all text-[10px] sm:text-xs flex items-center gap-1 sm:gap-1.5 font-mono cursor-pointer"
             id="lang-toggle-button"
           >
-            <Languages className="w-4 h-4" />
-            <span>{t.switchLanguage}</span>
+            <Languages className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span className="hidden sm:inline">{t.switchLanguage}</span>
+            <span className="inline sm:hidden uppercase font-bold text-[9px]">{lang === 'ar' ? 'en' : 'ar'}</span>
           </button>
 
           {/* Core Login/Account Action */}
           {isLoggedIn ? (
             <button
               onClick={() => setShowAccountModal(true)}
-              className="relative inline-flex items-center justify-center p-0.5 rounded-xl overflow-hidden text-xs font-bold text-white hover:text-zinc-200 group bg-gradient-to-br from-indigo-600 via-violet-500 to-purple-500 shadow-md hover:shadow-violet-600/20 active:scale-95 transition-all cursor-pointer"
+              className="relative inline-flex items-center justify-center p-0.5 rounded-xl overflow-hidden text-[10px] sm:text-xs font-bold text-white hover:text-zinc-200 group bg-gradient-to-br from-indigo-600 via-violet-500 to-purple-500 shadow-md hover:shadow-violet-600/20 active:scale-95 transition-all cursor-pointer"
               id="header-my-account-cta"
             >
-              <span className="relative px-3.5 py-1.5 transition-all ease-in duration-75 bg-zinc-950 rounded-xl group-hover:bg-opacity-0 flex items-center gap-1.5 font-sans">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                {lang === 'ar' ? 'حسابي' : 'My Account'}
+              <span className="relative px-2 py-1 sm:px-3 sm:py-1.5 transition-all ease-in duration-75 bg-zinc-950 rounded-xl group-hover:bg-opacity-0 flex items-center gap-1 sm:gap-1.5 font-sans">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                <span>{lang === 'ar' ? 'حسابي' : 'Account'}</span>
               </span>
             </button>
           ) : (
             <button
               onClick={() => setShowLoginModal(true)}
-              className="relative inline-flex items-center justify-center p-0.5 rounded-xl overflow-hidden text-xs font-bold text-white hover:text-zinc-200 group bg-gradient-to-br from-violet-600 via-purple-500 to-fuchsia-500 shadow-md hover:shadow-violet-600/20 active:scale-95 transition-all cursor-pointer"
+              className="relative inline-flex items-center justify-center p-0.5 rounded-xl overflow-hidden text-[10px] sm:text-xs font-bold text-white hover:text-zinc-200 group bg-gradient-to-br from-violet-600 via-purple-500 to-fuchsia-500 shadow-md hover:shadow-violet-600/20 active:scale-95 transition-all cursor-pointer"
               id="header-login-cta"
             >
-              <span className="relative px-3.5 py-1.5 transition-all ease-in duration-75 bg-zinc-950 rounded-xl group-hover:bg-opacity-0 font-sans">
-                {lang === 'ar' ? 'تسجيل / تسجيل الدخول' : 'Sign Up / Login'}
+              <span className="relative px-2 py-1 sm:px-3 sm:py-1.5 transition-all ease-in duration-75 bg-zinc-950 rounded-xl group-hover:bg-opacity-0 font-sans">
+                {lang === 'ar' ? (
+                  <>
+                    <span className="hidden sm:inline">تسجيل الدخول</span>
+                    <span className="inline sm:hidden">دخول</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="hidden sm:inline">Login</span>
+                    <span className="inline sm:hidden">Login</span>
+                  </>
+                )}
               </span>
             </button>
           )}
