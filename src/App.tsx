@@ -222,15 +222,11 @@ export default function App() {
         // Generate / load user database document
         try {
           const userDocRef = doc(db, 'users', user.uid);
-          let userSnap;
+          let userSnap = null;
           try {
             userSnap = await getDoc(userDocRef);
           } catch (getErr: any) {
-            console.log("Firestore getDoc offline or interrupted. Falling back to local stored credits:", getErr.message || getErr);
-            const cachedCredits = localStorage.getItem('cv_ai_user_credits');
-            const parsedCredits = cachedCredits ? parseInt(cachedCredits, 10) : (brandConfig.registerGiftCredits !== undefined ? brandConfig.registerGiftCredits : 5);
-            setUserCredits(parsedCredits);
-            return;
+            console.error("Firestore getDoc error (may be offline or new user):", getErr.message || getErr);
           }
 
           if (!userSnap || !userSnap.exists()) {
@@ -245,16 +241,18 @@ export default function App() {
             };
             try {
               await setDoc(userDocRef, newUserObj);
+              console.log("Successfully created user profile document in Firestore as:", newUserObj);
             } catch (setErr: any) {
-              console.log("Could not write initial user doc (client might be offline). Using locally:", setErr?.message || setErr);
+              console.error("Could not write initial user doc to Firestore. Error:", setErr?.message || setErr);
             }
             setUserCredits(signupGift);
           } else {
             const data = userSnap.data() as ClientAccount;
             setUserCredits(data.credits);
+            console.log("Loaded existing user profile from Firestore:", data);
           }
         } catch (e: any) {
-          console.log("Graceful recovery from user document retrieval failure:", e?.message || e);
+          console.error("Graceful recovery from user document retrieval failure:", e?.message || e);
           const cachedCredits = localStorage.getItem('cv_ai_user_credits');
           const parsedCredits = cachedCredits ? parseInt(cachedCredits, 10) : (brandConfig.registerGiftCredits !== undefined ? brandConfig.registerGiftCredits : 5);
           setUserCredits(parsedCredits);
@@ -418,17 +416,29 @@ export default function App() {
         const voucherData = voucherSnap.data() as Voucher;
 
         const userSnap = await transaction.get(userRef);
+        let updatedCredits = voucherData.value;
+
+        // If user document is missing/not-created-yet in Firestore, create it on the fly
         if (!userSnap.exists()) {
-          return { success: false, reason: 'user_not_found' };
+          const signupGift = brandConfig.registerGiftCredits !== undefined ? brandConfig.registerGiftCredits : 5;
+          const newUserObj: ClientAccount = {
+            id: userId,
+            name: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'User',
+            email: auth.currentUser?.email || '',
+            credits: signupGift + voucherData.value,
+            resumesCreated: 0,
+            joinedAt: new Date().toISOString().slice(0, 10)
+          };
+          transaction.set(userRef, newUserObj);
+          updatedCredits = signupGift + voucherData.value;
+        } else {
+          const userData = userSnap.data() as ClientAccount;
+          updatedCredits = (userData.credits || 0) + voucherData.value;
+          transaction.update(userRef, { credits: updatedCredits });
         }
-        const userData = userSnap.data() as ClientAccount;
 
         // Invalidate voucher
         transaction.update(voucherRef, { active: false });
-
-        // Update user balance
-        const updatedCredits = userData.credits + voucherData.value;
-        transaction.update(userRef, { credits: updatedCredits });
 
         return { success: true, value: voucherData.value };
       });
@@ -944,14 +954,21 @@ export default function App() {
               }}
               users={usersDb}
               onUpdateUsers={async (uList) => {
+                // Find exactly which user has changed
+                const updatedUser = uList.find(u => {
+                  const current = usersDb.find(cur => cur.id === u.id);
+                  return !current || current.credits !== u.credits || current.resumesCreated !== u.resumesCreated;
+                });
+
+                // Set local state
                 setUsersDb(uList);
-                if (isLoggedIn && auth.currentUser && auth.currentUser.email === 'veira1x1@gmail.com') {
+
+                if (updatedUser && isLoggedIn && auth.currentUser && auth.currentUser.email === 'veira1x1@gmail.com') {
                   try {
-                    for (const u of uList) {
-                      await setDoc(doc(db, 'users', u.id), u);
-                    }
+                    await setDoc(doc(db, 'users', updatedUser.id), updatedUser);
+                    console.log(`Successfully updated user ${updatedUser.id} in Firestore`);
                   } catch (err) {
-                    console.error("Users write failed", err);
+                    console.error("Single user write failed:", err);
                   }
                 }
               }}

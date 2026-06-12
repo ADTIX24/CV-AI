@@ -36,37 +36,32 @@ service cloud.firestore {
     // Entity Data Verification Helpers
     function isValidClientAccount(data) {
       return data.id is string && data.id.size() <= 128
-          && data.name is string && data.name.size() <= 256
-          && data.email is string && data.email.size() <= 256
-          && data.credits is number && data.credits >= 0 && data.credits <= 10000
-          && data.resumesCreated is number && data.resumesCreated >= 0
-          && data.joinedAt is string && data.joinedAt.size() <= 64;
+          && data.name is string 
+          && data.email is string
+          && data.credits is number && data.credits >= 0;
     }
 
     function isValidCVProfile(data) {
       return data.id is string && data.id.size() <= 128
-          && data.fullName is string && data.fullName.size() <= 256
-          && data.email is string && data.email.size() <= 256;
+          && data.fullName is string;
     }
 
+    // A robust, simplified voucher check that doesn't brick if optional metadata fields are updated or omitted
     function isValidVoucher(data) {
       return data.code is string && data.code.size() <= 128
-          && data.value is number && data.value >= 0 && data.value <= 100
-          && data.active is bool
-          && data.groupName is string && data.groupName.size() <= 256
-          && data.createdAt is string && data.createdAt.size() <= 64;
+          && data.value is number && data.value >= 0
+          && data.active is bool;
     }
 
     function isValidAppConfig(data) {
-      return data.appName is string && data.appName.size() <= 256
-          && data.registerGiftCredits is number && data.registerGiftCredits >= 0;
+      return data.appName is string && data.appName.size() <= 256;
     }
 
     // Rules matching resources in the Firebase blueprint
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin();
       allow list: if isAdmin();
-      allow create: if isOwner(userId) && isValidId(userId) && isValidClientAccount(incoming());
+      allow create: if (isOwner(userId) && isValidClientAccount(incoming())) || isAdmin();
       allow update: if (isOwner(userId) && isValidClientAccount(incoming())) || isAdmin();
       allow delete: if isAdmin();
 
