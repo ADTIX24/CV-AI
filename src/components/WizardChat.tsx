@@ -765,7 +765,7 @@ export function WizardChat({ t, lang, profile, onUpdateProfile, onComplete }: Pr
                     />
                     <input
                       type="text"
-                      placeholder={lang === 'ar' ? 'المسمى الوظيفي (أسفل الشركة)' : 'Job Title Role'}
+                      placeholder={lang === 'ar' ? 'المسمى الوظيفي' : 'Job Title Role'}
                       value={newRole}
                       onChange={(e) => setNewRole(e.target.value)}
                       className="bg-zinc-950 border border-zinc-850 p-2 text-xs rounded text-white focus:outline-none focus:border-violet-500"

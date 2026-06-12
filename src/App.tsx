@@ -273,6 +273,28 @@ export default function App() {
     return () => unsubscribe();
   }, [brandConfig.registerGiftCredits]);
 
+  // 2b. Real-time subscription to the logged-in user's own profile to update credits in real-time
+  useEffect(() => {
+    if (!isLoggedIn || !auth.currentUser) {
+      return;
+    }
+    const userId = auth.currentUser.uid;
+    const userDocRef = doc(db, 'users', userId);
+
+    const unsubscribe = onSnapshot(userDocRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as ClientAccount;
+        if (data.credits !== undefined) {
+          setUserCredits(data.credits);
+        }
+      }
+    }, (err) => {
+      console.warn("Failed to subscribe to user's profile real-time changes:", err);
+    });
+
+    return () => unsubscribe();
+  }, [isLoggedIn]);
+
   // Redirect guest to workspace creation immediately after successful login
   useEffect(() => {
     if (isLoggedIn && redirectToWorkspaceOnLoginRef.current) {

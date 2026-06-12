@@ -18,12 +18,11 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && 
-             request.auth.token.email_verified == true && 
              request.auth.token.email == 'veira1x1@gmail.com';
     }
 
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
     }
 
     function incoming() {
@@ -39,8 +38,8 @@ service cloud.firestore {
       return data.id is string && data.id.size() <= 128
           && data.name is string && data.name.size() <= 256
           && data.email is string && data.email.size() <= 256
-          && data.credits is int && data.credits >= 0 && data.credits <= 10000
-          && data.resumesCreated is int && data.resumesCreated >= 0
+          && data.credits is number && data.credits >= 0 && data.credits <= 10000
+          && data.resumesCreated is number && data.resumesCreated >= 0
           && data.joinedAt is string && data.joinedAt.size() <= 64;
     }
 
@@ -60,7 +59,7 @@ service cloud.firestore {
 
     function isValidAppConfig(data) {
       return data.appName is string && data.appName.size() <= 256
-          && data.registerGiftCredits is int && data.registerGiftCredits >= 0;
+          && data.registerGiftCredits is number && data.registerGiftCredits >= 0;
     }
 
     // Rules matching resources in the Firebase blueprint
