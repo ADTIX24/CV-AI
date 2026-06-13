@@ -351,7 +351,7 @@ export default function App() {
 
   // 4. Complete users list subscription ONLY for verified admin (veira1x1@gmail.com)
   useEffect(() => {
-    if (!isLoggedIn || !auth.currentUser || auth.currentUser.email !== 'veira1x1@gmail.com') {
+    if (!isLoggedIn || !auth.currentUser || auth.currentUser.email?.toLowerCase().trim() !== 'veira1x1@gmail.com') {
       setUsersDb([]);
       return;
     }
@@ -369,14 +369,40 @@ export default function App() {
 
   // 5. Complete vouchers database subscription ONLY for verified admin (veira1x1@gmail.com)
   useEffect(() => {
-    if (!isLoggedIn || !auth.currentUser || auth.currentUser.email !== 'veira1x1@gmail.com') {
+    if (!isLoggedIn || !auth.currentUser || auth.currentUser.email?.toLowerCase().trim() !== 'veira1x1@gmail.com') {
       return;
     }
-    const unsubscribe = onSnapshot(collection(db, 'vouchers'), (snapshot) => {
+    const unsubscribe = onSnapshot(collection(db, 'vouchers'), async (snapshot) => {
       const list: Voucher[] = [];
       snapshot.forEach(doc => {
         list.push(doc.data() as Voucher);
       });
+
+      // Automatically seed any missing default system promotion vouchers into the live Firestore database
+      const defaultPromos = [
+        { code: "CV-AI-FREE", value: 1, active: true, groupName: "Al-Nour Retail Batch", createdAt: new Date().toISOString() },
+        { code: "CV-AI-GIFT", value: 1, active: true, groupName: "Horizon Bookstore", createdAt: new Date().toISOString() },
+        { code: "CV-AI-VIP", value: 1, active: true, groupName: "Tech Hub Wholesaler", createdAt: new Date().toISOString() }
+      ];
+
+      let seededNew = false;
+      for (const p of defaultPromos) {
+        if (!list.some(v => v.code === p.code)) {
+          seededNew = true;
+          try {
+            await setDoc(doc(db, 'vouchers', p.code), p);
+            console.log(`Auto-seeded missing system voucher: ${p.code} into Firestore database.`);
+          } catch (seedErr) {
+            console.error(`Error auto-seeding system voucher ${p.code}:`, seedErr);
+          }
+        }
+      }
+
+      if (seededNew) {
+        // Let the subsequent real-time database snapshot update trigger and parse everything on the next iteration
+        return;
+      }
+
       // Sort descending by createdAt to ensure the newest compiled codes are always on top
       list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
       setVoucherDb(list);
@@ -425,8 +451,12 @@ export default function App() {
     if (!isLoggedIn || !auth.currentUser) {
       return { success: false, value: 0 };
     }
+    const cleanCode = code.trim().toUpperCase();
+    if (!cleanCode) {
+      return { success: false, value: 0 };
+    }
     const userId = auth.currentUser.uid;
-    const voucherRef = doc(db, 'vouchers', code);
+    const voucherRef = doc(db, 'vouchers', cleanCode);
     const userRef = doc(db, 'users', userId);
 
     try {
@@ -710,7 +740,7 @@ export default function App() {
           </button>
 
           {/* Conditional Admin view trigger strictly dependent on admin email */}
-          {isLoggedIn && currentUserEmail === 'veira1x1@gmail.com' && (
+          {isLoggedIn && currentUserEmail?.toLowerCase().trim() === 'veira1x1@gmail.com' && (
             <button
               onClick={() => setActiveView('admin')}
               className={`text-[10px] sm:text-xs font-semibold px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-lg transition-all border border-violet-500/20 bg-violet-600/5 hover:bg-violet-600/10 text-violet-400`}
@@ -948,7 +978,7 @@ export default function App() {
               config={brandConfig}
               onUpdateConfig={async (c) => {
                 setBrandConfig(c);
-                if (isLoggedIn && auth.currentUser && auth.currentUser.email === 'veira1x1@gmail.com') {
+                if (isLoggedIn && auth.currentUser && auth.currentUser.email?.toLowerCase().trim() === 'veira1x1@gmail.com') {
                   try {
                     await setDoc(doc(db, 'config', 'brand'), c);
                   } catch (err) {
@@ -964,7 +994,7 @@ export default function App() {
                   combined.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
                   return combined;
                 });
-                if (isLoggedIn && auth.currentUser && auth.currentUser.email === 'veira1x1@gmail.com') {
+                if (isLoggedIn && auth.currentUser && auth.currentUser.email?.toLowerCase().trim() === 'veira1x1@gmail.com') {
                   try {
                     for (const v of newVList) {
                       await setDoc(doc(db, 'vouchers', v.code), v);
@@ -985,7 +1015,7 @@ export default function App() {
                 // Set local state
                 setUsersDb(uList);
 
-                if (updatedUser && isLoggedIn && auth.currentUser && auth.currentUser.email === 'veira1x1@gmail.com') {
+                if (updatedUser && isLoggedIn && auth.currentUser && auth.currentUser.email?.toLowerCase().trim() === 'veira1x1@gmail.com') {
                   try {
                     await setDoc(doc(db, 'users', updatedUser.id), updatedUser);
                     console.log(`Successfully updated user ${updatedUser.id} in Firestore`);
@@ -1563,7 +1593,7 @@ export default function App() {
                     <span>{lang === 'ar' ? 'تسجيل الخروج' : 'Sign Out'}</span>
                   </button>
 
-                  {isLoggedIn && currentUserEmail === 'veira1x1@gmail.com' && (
+                  {isLoggedIn && currentUserEmail?.toLowerCase().trim() === 'veira1x1@gmail.com' && (
                     <button
                       onClick={() => {
                         setActiveView('admin');

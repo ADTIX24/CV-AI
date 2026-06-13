@@ -44,7 +44,7 @@ export function PaymentPanel({
     setLoading(true);
 
     try {
-      const res = await onRedeemVoucher(voucherInput.trim());
+      const res = await onRedeemVoucher(voucherInput.trim().toUpperCase());
       if (res.success) {
         setSuccessMsg(t.successAlertVoucher.replace('{val}', res.value.toString()));
         setVoucherInput('');
