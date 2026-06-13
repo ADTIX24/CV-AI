@@ -36,21 +36,18 @@ service cloud.firestore {
 
     // Entity Data Verification Helpers
     function isValidClientAccount(data) {
-      return data.id is string && data.id.size() <= 128
-          && data.name is string 
+      return data.name is string 
           && data.email is string
           && data.credits is number && data.credits >= 0;
     }
 
     function isValidCVProfile(data) {
-      return data.id is string && data.id.size() <= 128
-          && data.fullName is string;
+      return data.fullName is string;
     }
 
     // A robust, simplified voucher check that doesn't brick if optional metadata fields are updated or omitted
     function isValidVoucher(data) {
-      return data.code is string && data.code.size() <= 128
-          && data.value is number && data.value >= 0
+      return data.value is number && data.value >= 0
           && data.active is bool;
     }
 

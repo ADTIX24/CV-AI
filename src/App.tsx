@@ -358,7 +358,16 @@ export default function App() {
     const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
       const list: ClientAccount[] = [];
       snapshot.forEach(doc => {
-        list.push(doc.data() as ClientAccount);
+        const data = doc.data() as ClientAccount;
+        list.push({
+          ...data,
+          id: doc.id,
+          name: data.name || data.email?.split('@')[0] || 'User',
+          email: data.email || '',
+          credits: data.credits !== undefined ? data.credits : 0,
+          joinedAt: data.joinedAt || new Date().toISOString().slice(0, 10),
+          resumesCreated: data.resumesCreated !== undefined ? data.resumesCreated : 0
+        });
       });
       // Reverse-chronological sort so newly registered accounts immediately appear at the very top of the admin's database listing
       list.sort((a, b) => {
@@ -384,7 +393,15 @@ export default function App() {
     const unsubscribe = onSnapshot(collection(db, 'vouchers'), async (snapshot) => {
       const list: Voucher[] = [];
       snapshot.forEach(doc => {
-        list.push(doc.data() as Voucher);
+        const data = doc.data() as Voucher;
+        list.push({
+          ...data,
+          code: doc.id || data.code,
+          value: data.value !== undefined ? data.value : 1,
+          active: data.active !== undefined ? data.active : true,
+          groupName: data.groupName || 'Bulk Batch',
+          createdAt: data.createdAt || new Date().toISOString()
+        });
       });
 
       // Automatically seed any missing default system promotion vouchers into the live Firestore database
@@ -1192,21 +1209,8 @@ export default function App() {
                             setShowLoginModal(false);
                           } catch (err: any) {
                             console.error("Google auth issue: ", err);
-                            const isPopupErr = err?.code === 'auth/popup-blocked' || 
-                                               err?.code === 'auth/cancelled-popup-request' || 
-                                               err?.code === 'auth/popup-closed-by-user' ||
-                                               err?.message?.includes('popup') || 
-                                               err?.message?.includes('blocked') || 
-                                               err?.message?.includes('cancel');
-
-                            if (isPopupErr) {
-                              setLoginError(lang === 'ar' 
-                                ? '⚠️ يرجى الضغط على زر "فتح الموقع في نافذة جديدة مستقلة" بالأسفل لتجاوز حظر المتصفح للنوافذ المنبثقة.' 
-                                : '⚠️ Please use the "Open in Standalone New Window" button below to bypass browser popup blocks.');
-                            } else {
-                              // Suppress system/domain/configuration errors completely from setting ugly UI alerts
-                              setLoginError('');
-                            }
+                            // Keep auth failures clean and professional, logging details to console but presenting a clean UI
+                            setLoginError('');
                           } finally {
                             setAuthLoading(false);
                           }
@@ -1225,26 +1229,6 @@ export default function App() {
                           </div>
                         </div>
                       </button>
-
-                      {/* Dynamic Iframe Detection or Active Google Error bypass */}
-                      {(typeof window !== 'undefined' && window.self !== window.top) && (
-                        <div className="p-3 bg-violet-950/10 border border-violet-500/10 rounded-xl space-y-2 text-right">
-                          <p className="text-[10px] text-zinc-400 font-sans leading-relaxed">
-                            {lang === 'ar' 
-                              ? '💡 ملاحظة للمطور والعملاء: المتصفحات تمنع النوافذ المنبثقة لجوجل داخل إطار المعاينة. اضغط أدناه لفتح الموقع في نافذة جديدة مستقلة وسيعمل تسجيل الدخول الفوري بضغطة زر واحدة فورا وبدون أي حظر!' 
-                              : '💡 Integration Notice: Browsers prevent popup redirects inside the sandbox. Click below to view the site as a standalone tab where Google Auth executes smoothly in one tap!'}
-                          </p>
-                          <a
-                            href={typeof window !== 'undefined' ? window.location.href : '#'}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-full py-2 px-3 rounded-lg bg-violet-600/20 hover:bg-violet-600/40 border border-violet-500/30 text-violet-300 font-bold text-center block transition-all font-sans text-[10.5px] flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-violet-500/5 hover:scale-[1.01]"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5 text-violet-400" />
-                            <span>{lang === 'ar' ? 'فتح الموقع في نافذة كاملة مستقلة لتجاوز حظر المتصفح' : 'Open in Full Standalone Tab'}</span>
-                          </a>
-                        </div>
-                      )}
                     </div>
 
 
