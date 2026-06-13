@@ -56,6 +56,7 @@ export function AdminDashboard({ t, lang, config, onUpdateConfig, vouchers, onAd
   // Keep live visitor counts synced with true stats
   const [onlineTicking, setOnlineTicking] = useState(stats.onlineUsers);
   const [successStatus, setSuccessStatus] = useState('');
+  const [errorStatus, setErrorStatus] = useState('');
   const [customCreditInputs, setCustomCreditInputs] = useState<Record<string, string>>({});
   const [userSearchTerm, setUserSearchTerm] = useState('');
 
@@ -82,7 +83,7 @@ export function AdminDashboard({ t, lang, config, onUpdateConfig, vouchers, onAd
   };
 
   // Synthesize voucher codes
-  const handleVoucherSynthesis = () => {
+  const handleVoucherSynthesis = async () => {
     const freshVouchers: Voucher[] = [];
     const targetOwner = batchMerchant.trim() || (lang === 'ar' ? 'مكتبة الموزع' : 'Local Retail Library');
 
@@ -97,14 +98,23 @@ export function AdminDashboard({ t, lang, config, onUpdateConfig, vouchers, onAd
       });
     }
 
-    onAddVouchers(freshVouchers);
-    setBatchMerchant('');
-    setSuccessStatus(lang === 'ar' ? `تم توليد عدد ${voucherCount} كود شحن بنجاح!` : `Synthesized ${voucherCount} secure voucher codes!`);
-    setTimeout(() => setSuccessStatus(''), 2500);
+    try {
+      setErrorStatus('');
+      await onAddVouchers(freshVouchers);
+      setBatchMerchant('');
+      setSuccessStatus(lang === 'ar' ? `تم توليد عدد ${voucherCount} كود شحن بنجاح!` : `Synthesized ${voucherCount} secure voucher codes!`);
+      setTimeout(() => setSuccessStatus(''), 2500);
+    } catch (err: any) {
+      console.error("Voucher batch synthesis error:", err);
+      setErrorStatus(lang === 'ar' 
+        ? `فشل في شحن الأكواد وحفظها بـ Firestore: ${err?.message || err}` 
+        : `Failed storing codes in live Firestore: ${err?.message || err}`);
+      setTimeout(() => setErrorStatus(''), 5500);
+    }
   };
 
   // Grant Credits Manually within Directory with typeable input
-  const addCreditsToUser = (userId: string) => {
+  const addCreditsToUser = async (userId: string) => {
     const amtStr = customCreditInputs[userId] || '10';
     const amt = Math.max(1, parseInt(amtStr) || 1);
     const updatedUsers = users.map(usr => {
@@ -113,9 +123,19 @@ export function AdminDashboard({ t, lang, config, onUpdateConfig, vouchers, onAd
       }
       return usr;
     });
-    onUpdateUsers(updatedUsers);
-    setSuccessStatus(lang === 'ar' ? `تمت إضافة ${amt} كريدت بنجاح!` : `Granted ${amt} credits successfully!`);
-    setTimeout(() => setSuccessStatus(''), 2500);
+
+    try {
+      setErrorStatus('');
+      await onUpdateUsers(updatedUsers);
+      setSuccessStatus(lang === 'ar' ? `تمت إضافة ${amt} كريدت بنجاح!` : `Granted ${amt} credits successfully!`);
+      setTimeout(() => setSuccessStatus(''), 2500);
+    } catch (err: any) {
+      console.error("Manual credit award failed:", err);
+      setErrorStatus(lang === 'ar' 
+        ? `عذراً، لم نتمكن من تعديل رصيد العميل بـ Firestore: ${err?.message || err}` 
+        : `Could not alter client credit balance in Firestore: ${err?.message || err}`);
+      setTimeout(() => setErrorStatus(''), 5500);
+    }
   };
 
   // Copy codes utilities
@@ -144,6 +164,13 @@ export function AdminDashboard({ t, lang, config, onUpdateConfig, vouchers, onAd
         <div className="fixed bottom-5 right-5 z-50 bg-emerald-500 text-black px-5 py-3 rounded-xl shadow-2xl font-bold flex items-center gap-2 animate-bounce">
           <ShieldCheck className="w-5 h-5" />
           <span>{successStatus}</span>
+        </div>
+      )}
+
+      {errorStatus && (
+        <div className="fixed bottom-5 right-5 z-50 bg-red-600 text-white px-5 py-3 rounded-xl shadow-2xl font-bold flex items-center gap-2 animate-bounce">
+          <div className="w-5 h-5 bg-red-800 rounded-full flex items-center justify-center font-bold text-white shrink-0">!</div>
+          <span>{errorStatus}</span>
         </div>
       )}
 

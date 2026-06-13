@@ -19,11 +19,11 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && 
              request.auth.token.email != null &&
-             request.auth.token.email.lower() == 'veira1x1@gmail.com';
+             request.auth.token.email.matches('(?i)^veira1x1@gmail\\.com$');
     }
 
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+      return id is string && id.size() <= 128;
     }
 
     function incoming() {

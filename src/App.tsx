@@ -1018,20 +1018,29 @@ export default function App() {
               }}
               vouchers={voucherDb}
               onAddVouchers={async (newVList) => {
-                // Bulk write generated vouchers to Firestore vouchers collection
-                setVoucherDb(prev => {
-                  const combined = [...newVList, ...prev];
-                  combined.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-                  return combined;
-                });
                 if (isLoggedIn && auth.currentUser && auth.currentUser.email?.toLowerCase().trim() === 'veira1x1@gmail.com') {
                   try {
                     for (const v of newVList) {
                       await setDoc(doc(db, 'vouchers', v.code), v);
                     }
+                    console.log("Successfully wrote generated vouchers to Firestore.");
+                    // Sync locally
+                    setVoucherDb(prev => {
+                      const combined = [...newVList, ...prev];
+                      combined.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+                      return combined;
+                    });
                   } catch (err) {
                     console.error("Vouchers write failed", err);
+                    throw err;
                   }
+                } else {
+                  // Local fallback for demo
+                  setVoucherDb(prev => {
+                    const combined = [...newVList, ...prev];
+                    combined.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+                    return combined;
+                  });
                 }
               }}
               users={usersDb}
@@ -1042,16 +1051,19 @@ export default function App() {
                   return !current || current.credits !== u.credits || current.resumesCreated !== u.resumesCreated;
                 });
 
-                // Set local state
-                setUsersDb(uList);
-
                 if (updatedUser && isLoggedIn && auth.currentUser && auth.currentUser.email?.toLowerCase().trim() === 'veira1x1@gmail.com') {
                   try {
-                    await setDoc(doc(db, 'users', updatedUser.id), updatedUser);
+                    await setDoc(doc(db, 'users', updatedUser.id), updatedUser, { merge: true });
                     console.log(`Successfully updated user ${updatedUser.id} in Firestore`);
+                    // Set local state
+                    setUsersDb(uList);
                   } catch (err) {
                     console.error("Single user write failed:", err);
+                    throw err;
                   }
+                } else {
+                  // Fallback for demo
+                  setUsersDb(uList);
                 }
               }}
               stats={stats}
