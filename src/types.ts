@@ -117,6 +117,7 @@ export interface AppConfig {
 
 export interface ClientAccount {
   id: string;
+  uid?: string;
   name: string;
   email: string;
   credits: number;

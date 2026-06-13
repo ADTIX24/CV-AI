@@ -84,6 +84,14 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /codes/{codeId} {
+      allow get: if isSignedIn();
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(codeId);
+      allow update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
     match /config/{configId} {
       allow read: if true;
       allow write: if isAdmin() && isValidAppConfig(incoming());
