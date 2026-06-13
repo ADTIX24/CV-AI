@@ -313,7 +313,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [isLoggedIn, brandConfig.registerGiftCredits]);
+  }, [isLoggedIn, auth.currentUser?.uid, brandConfig.registerGiftCredits]);
 
   // Redirect guest to workspace creation immediately after successful login
   useEffect(() => {
@@ -347,7 +347,7 @@ export default function App() {
       console.warn("Failed to subscribe user resumes collection, continuing in offline cached mode:", err.message || err);
     });
     return () => unsubscribe();
-  }, [isLoggedIn]);
+  }, [isLoggedIn, auth.currentUser?.uid]);
 
   // 4. Complete users list subscription ONLY for verified admin (veira1x1@gmail.com)
   useEffect(() => {
@@ -360,12 +360,21 @@ export default function App() {
       snapshot.forEach(doc => {
         list.push(doc.data() as ClientAccount);
       });
+      // Reverse-chronological sort so newly registered accounts immediately appear at the very top of the admin's database listing
+      list.sort((a, b) => {
+        const dateA = a.joinedAt || '';
+        const dateB = b.joinedAt || '';
+        if (dateA !== dateB) {
+          return dateB.localeCompare(dateA);
+        }
+        return (b.id || '').localeCompare(a.id || '');
+      });
       setUsersDb(list);
     }, (err) => {
       console.warn("User listing subscription restricted, using fallback:", err);
     });
     return () => unsubscribe();
-  }, [isLoggedIn, currentUserEmail]);
+  }, [isLoggedIn, auth.currentUser?.uid, currentUserEmail]);
 
   // 5. Complete vouchers database subscription ONLY for verified admin (veira1x1@gmail.com)
   useEffect(() => {
@@ -438,13 +447,17 @@ export default function App() {
 
   // 9. Sync transactional live statistics
   useEffect(() => {
+    const isAdminUser = currentUserEmail?.toLowerCase().trim() === 'veira1x1@gmail.com';
+    const dbResumesSum = usersDb.reduce((sum, u) => sum + (u.resumesCreated || 0), 0);
+    const dbCreditsSum = usersDb.reduce((sum, u) => sum + (u.credits || 0), 0);
+
     setStats({
       onlineUsers: 1,
-      totalResumes: isLoggedIn ? userResumes.length : realResumesCount,
-      totalSales: totalSalesValue,
+      totalResumes: isAdminUser ? dbResumesSum : (isLoggedIn ? userResumes.length : realResumesCount),
+      totalSales: isAdminUser ? dbCreditsSum : totalSalesValue,
       registeredCount: usersDb.length
     });
-  }, [isLoggedIn, userResumes.length, realResumesCount, totalSalesValue, usersDb.length]);
+  }, [isLoggedIn, currentUserEmail, userResumes.length, realResumesCount, totalSalesValue, usersDb]);
 
   // Secure Firestore transaction-based redemption process handler
   const handleRedeemVoucher = async (code: string) => {

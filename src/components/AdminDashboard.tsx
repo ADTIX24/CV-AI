@@ -57,6 +57,7 @@ export function AdminDashboard({ t, lang, config, onUpdateConfig, vouchers, onAd
   const [onlineTicking, setOnlineTicking] = useState(stats.onlineUsers);
   const [successStatus, setSuccessStatus] = useState('');
   const [customCreditInputs, setCustomCreditInputs] = useState<Record<string, string>>({});
+  const [userSearchTerm, setUserSearchTerm] = useState('');
 
   useEffect(() => {
     setOnlineTicking(stats.onlineUsers);
@@ -500,50 +501,75 @@ export function AdminDashboard({ t, lang, config, onUpdateConfig, vouchers, onAd
         {/* User directory credits manager */}
         <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 flex flex-col justify-between">
           <div>
-            <div className="flex items-center gap-2 pb-3 border-b border-zinc-900">
-              <Users className="w-5 h-5 text-blue-400" />
-              <h3 className="text-sm font-semibold text-zinc-100">{t.userManagementTitle}</h3>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-900">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-blue-400" />
+                <h3 className="text-sm font-semibold text-zinc-100">{t.userManagementTitle}</h3>
+              </div>
+              <input
+                type="text"
+                placeholder={lang === 'ar' ? 'بحث بالاسم، الايميل أو المعرّف...' : 'Search by name, email or UID...'}
+                value={userSearchTerm}
+                onChange={(e) => setUserSearchTerm(e.target.value)}
+                className="bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500 w-full sm:w-48 font-sans"
+              />
             </div>
 
-            <div className="divide-y divide-zinc-900 overflow-y-auto max-h-[240px] pr-2 mt-4 space-y-2.5">
-              {users.map((usr) => (
-                <div key={usr.id} className="flex flex-col sm:flex-row sm:items-center justify-between py-3 text-xs gap-3">
-                  <div className="text-right sm:text-left">
-                    <span className="text-zinc-150 font-sans font-semibold block">{usr.name}</span>
-                    <span className="text-[10.5px] text-zinc-500 block font-mono">{usr.email}</span>
-                  </div>
-                  
-                  {/* Premium credit management inputs with exact typeable count support */}
-                  <div className="flex items-center gap-2 self-end sm:self-auto">
-                    <span className="font-mono text-amber-500 bg-amber-500/10 px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold shrink-0">
-                      {usr.credits} {lang === 'ar' ? 'كريدت' : 'Credits'}
-                    </span>
+            <div className="divide-y divide-zinc-900 overflow-y-auto max-h-[500px] pr-2 mt-4 space-y-2.5">
+              {(() => {
+                const filtered = users.filter(usr => {
+                  const q = userSearchTerm.toLowerCase().trim();
+                  if (!q) return true;
+                  return (usr.name || '').toLowerCase().includes(q) || 
+                         (usr.email || '').toLowerCase().includes(q) || 
+                         (usr.id || '').toLowerCase().includes(q);
+                });
+                if (filtered.length === 0) {
+                  return (
+                    <div className="text-center py-8 text-zinc-500 text-xs font-sans">
+                      {lang === 'ar' ? 'لم يتم العثور على أي مستخدم يطابق البحث.' : 'No users found matching your search term.'}
+                    </div>
+                  );
+                }
+                return filtered.map((usr) => (
+                  <div key={usr.id} className="flex flex-col sm:flex-row sm:items-center justify-between py-3 text-xs gap-3">
+                    <div className="text-right sm:text-left">
+                      <span className="text-zinc-150 font-sans font-semibold block">{usr.name}</span>
+                      <span className="text-[10.5px] text-zinc-500 block font-mono">{usr.email}</span>
+                    </div>
                     
-                    {/* Numeric input & add button integrated into a sleek visual capsule */}
-                    <div className="flex items-center border border-zinc-800 bg-zinc-900 rounded-lg overflow-hidden shrink-0">
-                      <input
-                        type="number"
-                        min="1"
-                        placeholder="10"
-                        title={lang === 'ar' ? 'کمية الكريدت' : 'Credit amount'}
-                        value={customCreditInputs[usr.id] !== undefined ? customCreditInputs[usr.id] : '10'}
-                        onChange={(e) => setCustomCreditInputs({
-                          ...customCreditInputs,
-                          [usr.id]: e.target.value
-                        })}
-                        className="w-14 bg-zinc-950 text-white text-[10.5px] font-mono py-1.5 focus:outline-none text-center border-r border-zinc-800"
-                      />
-                      <button
-                        onClick={() => addCreditsToUser(usr.id)}
-                        className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-[10px] font-bold font-sans transition-colors cursor-pointer flex items-center gap-0.5"
-                      >
-                        <Plus className="w-3.5 h-3.5 shrink-0" />
-                        {lang === 'ar' ? 'إضافة رصيد' : 'Add Credit'}
-                      </button>
+                    {/* Premium credit management inputs with exact typeable count support */}
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                      <span className="font-mono text-amber-500 bg-amber-500/10 px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold shrink-0">
+                        {usr.credits} {lang === 'ar' ? 'كريدت' : 'Credits'}
+                      </span>
+                      
+                      {/* Numeric input & add button integrated into a sleek visual capsule */}
+                      <div className="flex items-center border border-zinc-800 bg-zinc-900 rounded-lg overflow-hidden shrink-0">
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="10"
+                          title={lang === 'ar' ? 'کمية الكريدت' : 'Credit amount'}
+                          value={customCreditInputs[usr.id] !== undefined ? customCreditInputs[usr.id] : '10'}
+                          onChange={(e) => setCustomCreditInputs({
+                            ...customCreditInputs,
+                            [usr.id]: e.target.value
+                          })}
+                          className="w-14 bg-zinc-950 text-white text-[10.5px] font-mono py-1.5 focus:outline-none text-center border-r border-zinc-800"
+                        />
+                        <button
+                          onClick={() => addCreditsToUser(usr.id)}
+                          className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-[10px] font-bold font-sans transition-colors cursor-pointer flex items-center gap-0.5"
+                        >
+                          <Plus className="w-3.5 h-3.5 shrink-0" />
+                          {lang === 'ar' ? 'إضافة رصيد' : 'Add Credit'}
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ));
+              })()}
             </div>
           </div>
           
