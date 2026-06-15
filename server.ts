@@ -5,9 +5,13 @@
 
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
+import { initializeApp, getApps, getApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 import dotenv from 'dotenv';
 
 // Read .env configuration
@@ -15,6 +19,45 @@ dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Load firebase config for server-side operations
+let firebaseConfig: any = {};
+try {
+  const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+  if (fs.existsSync(configPath)) {
+    firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  }
+} catch (err) {
+  console.error("Failed to load firebase-applet-config.json in backend:", err);
+}
+
+const projectId = process.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId;
+const databaseId = process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || firebaseConfig.firestoreDatabaseId;
+
+// Initialize Firebase Admin SDK
+let firestoreDb: any = null;
+let firebaseAdminApp: any = null;
+if (projectId) {
+  try {
+    if (getApps().length === 0) {
+      firebaseAdminApp = initializeApp({
+        projectId: projectId,
+      });
+      console.log("[Firebase Admin] Initialized successfully for project:", projectId);
+    } else {
+      firebaseAdminApp = getApp();
+    }
+    
+    // Choose custom database if configured, else default
+    const dbId = databaseId && databaseId !== 'default' && databaseId !== '(default)' ? databaseId : undefined;
+    firestoreDb = dbId ? getFirestore(dbId) : getFirestore();
+    console.log(`[Firebase Admin] Firestore loaded connected to databaseId: ${dbId || '(default)'}`);
+  } catch (err) {
+    console.error("[Firebase Admin] Initialization failed:", err);
+  }
+} else {
+  console.warn("[Firebase Admin] Skipping initialization: VITE_FIREBASE_PROJECT_ID is not configured.");
+}
 
 async function startServer() {
   const app = express();
@@ -92,6 +135,115 @@ CRITICAL GUIDELINES:
       geminiConfigured: hasKey,
       time: new Date().toISOString()
     });
+  });
+
+  // --- API ROUTE: Secure Firebase Auth User Synchronizer ---
+  app.post('/api/admin/sync-auth-users', async (req, res) => {
+    if (!firestoreDb) {
+      return res.status(500).json({ error: "Firebase Admin Firestore database is not initialized." });
+    }
+
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized: Missing Authorization header' });
+      }
+      const idToken = authHeader.split('Bearer ')[1];
+      
+      // Decrypt and verify the administrator ID Token
+      const decodedToken = await getAuth().verifyIdToken(idToken);
+      const email = (decodedToken.email || '').toLowerCase().trim();
+      
+      // Only the verified Master Admin has authority to invoke sync
+      if (email !== 'veira1x1@gmail.com') {
+        return res.status(403).json({ error: 'Forbidden: Unified Sync requires Master Admin credential' });
+      }
+
+      // Fetch active gift credit allocation from Firestore config or fallback to 5
+      let signupGift = 5;
+      try {
+        const brandConfigSnap = await firestoreDb.collection('config').doc('brand').get();
+        if (brandConfigSnap.exists) {
+          const configData = brandConfigSnap.data();
+          if (configData && configData.registerGiftCredits !== undefined) {
+            signupGift = configData.registerGiftCredits;
+          }
+        }
+      } catch (configErr) {
+        console.warn("Could not load registration gifts amount, default to 5:", configErr);
+      }
+
+      // Query complete authentication index from Firebase Auth Service
+      const listUsersResult = await getAuth().listUsers();
+      const syncedDocs: any[] = [];
+
+      for (const authUser of listUsersResult.users) {
+        const userId = authUser.uid;
+        const userEmail = (authUser.email || '').toLowerCase().trim();
+        const userName = authUser.displayName || userEmail.split('@')[0] || 'User';
+
+        const uidDocRef = firestoreDb.collection('users').doc(userId);
+        const uidSnap = await uidDocRef.get();
+
+        const newUserProfile = {
+          uid: userId,
+          id: userId,
+          name: userName,
+          email: userEmail,
+          credits: signupGift,
+          resumesCreated: 0,
+          joinedAt: new Date().toISOString().slice(0, 10)
+        };
+
+        if (!uidSnap.exists) {
+          // Write profile document for the newly discovered authenticated user
+          await uidDocRef.set(newUserProfile);
+          syncedDocs.push({ id: userId, email: userEmail, status: 'synced_new' });
+
+          // Duplicate under email key for legacy email-based Firestore indices
+          if (userEmail) {
+            const emailDocRef = firestoreDb.collection('users').doc(userEmail);
+            await emailDocRef.set({ ...newUserProfile, id: userEmail }, { merge: true });
+          }
+        } else {
+          // Self-heal and fill out missing structural fields
+          const currentData = uidSnap.data() || {};
+          const isStructuralIncomplete = !currentData.uid || !currentData.email || !currentData.name || currentData.credits === undefined;
+          
+          if (isStructuralIncomplete) {
+            const patchedObj = {
+              uid: userId,
+              id: userId,
+              email: currentData.email || userEmail,
+              name: currentData.name || userName,
+              credits: currentData.credits !== undefined ? currentData.credits : signupGift,
+              joinedAt: currentData.joinedAt || new Date().toISOString().slice(0, 10),
+              resumesCreated: currentData.resumesCreated !== undefined ? currentData.resumesCreated : 0
+            };
+            await uidDocRef.set(patchedObj, { merge: true });
+            
+            if (userEmail) {
+              const emailDocRef = firestoreDb.collection('users').doc(userEmail);
+              await emailDocRef.set({ ...patchedObj, id: userEmail }, { merge: true });
+            }
+            syncedDocs.push({ id: userId, email: userEmail, status: 'self_healed' });
+          } else {
+            syncedDocs.push({ id: userId, email: userEmail, status: 'already_healthy' });
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `Successfully synchronized ${syncedDocs.length} accounts.`,
+        syncedCount: syncedDocs.length,
+        items: syncedDocs
+      });
+
+    } catch (err: any) {
+      console.error("Critical admin synchronization system failure: ", err);
+      res.status(500).json({ error: err.message || 'Server Auth sync failed' });
+    }
   });
 
   // Serve static UI assets for the app preview

@@ -132,6 +132,12 @@ export default function App() {
   // Client directory list
   const [usersDb, setUsersDb] = useState<ClientAccount[]>([]);
 
+  const checkIsAdmin = () => {
+    if (!isLoggedIn) return false;
+    const emailToCheck = (currentUserEmail || auth.currentUser?.email || '').toLowerCase().trim();
+    return emailToCheck === 'veira1x1@gmail.com';
+  };
+
   // Resume Model Inputs state
   const [profile, setProfile] = useState<CVProfile>(() => {
     const saved = localStorage.getItem('cv_ai_profile');
@@ -410,10 +416,33 @@ export default function App() {
 
   // 4. Complete users list subscription ONLY for verified admin (veira1x1@gmail.com)
   useEffect(() => {
-    if (!isLoggedIn || !auth.currentUser || auth.currentUser.email?.toLowerCase().trim() !== 'veira1x1@gmail.com') {
+    if (!checkIsAdmin()) {
       setUsersDb([]);
       return;
     }
+
+    // Trigger proactive background account synchronization from Firebase Authentication to Firestore
+    const triggerBackgroundAuthSync = async () => {
+      try {
+        if (!auth.currentUser) return;
+        const token = await auth.currentUser.getIdToken(true);
+        const res = await fetch('/api/admin/sync-auth-users', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          console.log(`[Sync Service] Checked & synced ${data.syncedCount || 0} registers successfully.`);
+        }
+      } catch (syncErr) {
+        console.warn("[Sync Service] Quick background synchronization failed:", syncErr);
+      }
+    };
+    triggerBackgroundAuthSync();
+
     const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
       const emailToUserMap = new Map<string, ClientAccount>();
       
@@ -485,7 +514,7 @@ export default function App() {
 
   // 5. Complete vouchers database subscription ONLY for verified admin (veira1x1@gmail.com)
   useEffect(() => {
-    if (!isLoggedIn || !auth.currentUser || auth.currentUser.email?.toLowerCase().trim() !== 'veira1x1@gmail.com') {
+    if (!checkIsAdmin()) {
       return;
     }
     const unsubscribe = onSnapshot(collection(db, 'vouchers'), async (snapshot) => {
@@ -1246,7 +1275,7 @@ export default function App() {
               config={brandConfig}
               onUpdateConfig={async (c) => {
                 setBrandConfig(c);
-                if (isLoggedIn && auth.currentUser && auth.currentUser.email?.toLowerCase().trim() === 'veira1x1@gmail.com') {
+                if (checkIsAdmin()) {
                   try {
                     await setDoc(doc(db, 'config', 'brand'), c);
                   } catch (err) {
@@ -1254,9 +1283,25 @@ export default function App() {
                   }
                 }
               }}
+              onSyncAuthUsers={async () => {
+                if (!auth.currentUser) throw new Error("Authenticated session is required.");
+                const token = await auth.currentUser.getIdToken(true);
+                const response = await fetch('/api/admin/sync-auth-users', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                  }
+                });
+                if (!response.ok) {
+                  const errorRes = await response.json().catch(() => ({}));
+                  throw new Error(errorRes.error || `Error status ${response.status}`);
+                }
+                return await response.json();
+              }}
               vouchers={voucherDb}
               onAddVouchers={async (newVList) => {
-                if (isLoggedIn && auth.currentUser && auth.currentUser.email?.toLowerCase().trim() === 'veira1x1@gmail.com') {
+                if (checkIsAdmin()) {
                   try {
                     for (const v of newVList) {
                       await setDoc(doc(db, 'vouchers', v.code), v);
@@ -1295,7 +1340,7 @@ export default function App() {
                   return !current || current.credits !== u.credits || current.resumesCreated !== u.resumesCreated;
                 });
 
-                if (updatedUser && isLoggedIn && auth.currentUser && auth.currentUser.email?.toLowerCase().trim() === 'veira1x1@gmail.com') {
+                if (updatedUser && checkIsAdmin()) {
                   try {
                     const refs = [doc(db, 'users', updatedUser.id)];
                     const emailKey = (updatedUser.email || '').toLowerCase().trim();

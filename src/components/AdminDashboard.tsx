@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { ToggleLeft, Database, Settings2, BarChart3, Users, Ticket, Copy, FileSpreadsheet, Plus, ShieldCheck, Heart, Share2, Trash2, Globe, FileText, Link, Languages, Gift } from 'lucide-react';
+import { ToggleLeft, Database, Settings2, BarChart3, Users, Ticket, Copy, FileSpreadsheet, Plus, ShieldCheck, Heart, Share2, Trash2, Globe, FileText, Link, Languages, Gift, RefreshCw } from 'lucide-react';
 import { Voucher, AppConfig as AppConfigType, ClientAccount, SystemStats, SocialLink, CustomPage } from '../types';
 import { AppTranslation } from '../translations';
 
@@ -18,9 +18,10 @@ interface Props {
   users: ClientAccount[];
   onUpdateUsers: (uList: ClientAccount[]) => void;
   stats: SystemStats;
+  onSyncAuthUsers?: () => Promise<any>;
 }
 
-export function AdminDashboard({ t, lang, config, onUpdateConfig, vouchers, onAddVouchers, users, onUpdateUsers, stats }: Props) {
+export function AdminDashboard({ t, lang, config, onUpdateConfig, vouchers, onAddVouchers, users, onUpdateUsers, stats, onSyncAuthUsers }: Props) {
   // Brand Editing state
   const [logoText, setLogoText] = useState(config.logoText);
   const [appName, setAppName] = useState(config.appName);
@@ -59,6 +60,29 @@ export function AdminDashboard({ t, lang, config, onUpdateConfig, vouchers, onAd
   const [errorStatus, setErrorStatus] = useState('');
   const [customCreditInputs, setCustomCreditInputs] = useState<Record<string, string>>({});
   const [userSearchTerm, setUserSearchTerm] = useState('');
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSyncAuthUsers = async () => {
+    if (!onSyncAuthUsers) return;
+    setSyncing(true);
+    setErrorStatus('');
+    setSuccessStatus('');
+    try {
+      const res = await onSyncAuthUsers();
+      setSuccessStatus(lang === 'ar' 
+        ? `نجاح المزامنة! تم فحص وربط عدد ${res.syncedCount || 0} حساب مستخدم بنجاح.` 
+        : `Database sync complete! Verified and linked ${res.syncedCount || 0} user records.`);
+      setTimeout(() => setSuccessStatus(''), 4500);
+    } catch (err: any) {
+      console.error("Auth users sync execution error:", err);
+      setErrorStatus(lang === 'ar'
+        ? `فشلت مزامنة جرد الحسابات من Firebase: ${err.message || err}`
+        : `Firebase user enumeration synchronization failed: ${err.message || err}`);
+      setTimeout(() => setErrorStatus(''), 5500);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   useEffect(() => {
     setOnlineTicking(stats.onlineUsers);
@@ -533,13 +557,29 @@ export function AdminDashboard({ t, lang, config, onUpdateConfig, vouchers, onAd
                 <Users className="w-5 h-5 text-blue-400" />
                 <h3 className="text-sm font-semibold text-zinc-100">{t.userManagementTitle}</h3>
               </div>
-              <input
-                type="text"
-                placeholder={lang === 'ar' ? 'بحث بالاسم، الايميل أو المعرّف...' : 'Search by name, email or UID...'}
-                value={userSearchTerm}
-                onChange={(e) => setUserSearchTerm(e.target.value)}
-                className="bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500 w-full sm:w-48 font-sans"
-              />
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSyncAuthUsers}
+                  disabled={syncing}
+                  className={`px-3 py-1.5 rounded-lg border text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    syncing
+                      ? 'bg-zinc-900 border-zinc-800 text-zinc-500 cursor-not-allowed'
+                      : 'bg-violet-600/10 border-violet-500/20 hover:bg-violet-600/20 text-violet-400'
+                  }`}
+                  title={lang === 'ar' ? 'مزامنة الحسابات من Firebase Authentication' : 'Synchronize registers list from Auth'}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${syncing ? 'animate-spin' : ''}`} />
+                  <span>{syncing ? (lang === 'ar' ? 'جاري الربط...' : 'Syncing...') : (lang === 'ar' ? 'مزامنة الحسابات' : 'Sync Auth Registers')}</span>
+                </button>
+                <input
+                  type="text"
+                  placeholder={lang === 'ar' ? 'بحث بالاسم، الايميل أو المعرّف...' : 'Search by name, email or UID...'}
+                  value={userSearchTerm}
+                  onChange={(e) => setUserSearchTerm(e.target.value)}
+                  className="bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500 w-full sm:w-48 font-sans text-right"
+                />
+              </div>
             </div>
 
             <div className="divide-y divide-zinc-900 overflow-y-auto max-h-[500px] pr-2 mt-4 space-y-2.5">

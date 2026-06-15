@@ -7,7 +7,10 @@ import firebaseConfig from '../../firebase-applet-config.json';
 const isAiStudioSandbox = typeof window !== 'undefined' && 
   (window.location.hostname.includes('.run.app') || 
    window.location.hostname.includes('ai.studio') ||
-   window.location.hostname.includes('google.com'));
+   window.location.hostname.includes('google.com') ||
+   window.location.hostname.includes('localhost') ||
+   window.location.hostname.includes('127.0.0.1') ||
+   (firebaseConfig.projectId && firebaseConfig.projectId !== ""));
 
 // User's dedicated production Firebase project configuration (from Vercel / custom domain)
 const userProdConfig = {
@@ -47,6 +50,8 @@ const dbId = config.firestoreDatabaseId &&
              config.firestoreDatabaseId !== '(default)'
   ? config.firestoreDatabaseId
   : undefined;
+
+console.log("[Firebase Init] Config:", { ...config, apiKey: '***' }, "dbId:", dbId);
 
 export const db = dbId ? getFirestore(app, dbId) : getFirestore(app);
 export const auth = getAuth(app);
