@@ -757,6 +757,7 @@ export default function App() {
     setAuthLoading(true);
     setLoginError('');
     try {
+      console.log("[Google Auth] Initializing signInWithPopup standard flow...");
       const res = await signInWithPopup(auth, googleProvider);
       if (res && res.user) {
         const email = (res.user.email || '').toLowerCase().trim();
@@ -772,11 +773,27 @@ export default function App() {
         return;
       }
     } catch (popupErr: any) {
-      console.warn("Google popup authentication failed, performing silent UI redirect:", popupErr);
+      console.error("[Google Auth] POPUP ERROR:", popupErr);
+      let errMsg = '';
       
-      // Auto-switch to google-fallback mode silently without throwing any annoying popups or error banners to customers
-      setLoginError('');
-      setLoginMode('google-fallback');
+      if (popupErr.code === 'auth/popup-blocked') {
+        errMsg = lang === 'ar'
+          ? 'تم حظر نافذة تسجيل الدخول المنبثقة من قبل المتصفح. يرجى تفعيل السماح بالنوافذ المنبثقة (Popups) وإعادة المحاولة.'
+          : 'The Google login popup was blocked by your browser. Please allow popups for this site and try again.';
+      } else if (popupErr.code === 'auth/cancelled-popup-request' || popupErr.code === 'auth/popup-closed-by-user') {
+        errMsg = lang === 'ar'
+          ? 'تم إغلاق نافذة تسجيل الدخول من Google.'
+          : 'The Google login popup was closed before completing.';
+      } else if (popupErr.code === 'auth/unauthorized-domain' || (popupErr.message && popupErr.message.includes('unauthorized-domain'))) {
+        errMsg = lang === 'ar'
+          ? 'عذراً، هذا النطاق غير مصرح به لتسجيل الدخول بـ Google في إعدادات مشروع Firebase. يرجى مراجعة قائمة النطاقات المصرح بها (Authorized Domains).'
+          : 'Sorry, this domain is not authorized for Google Sign-In in your Firebase project settings.';
+      } else {
+        errMsg = lang === 'ar'
+          ? `فشل تسجيل الدخول من Google: ${popupErr.message || String(popupErr)}`
+          : `Google Sign-In failed: ${popupErr.message || String(popupErr)}`;
+      }
+      setLoginError(errMsg);
     } finally {
       setAuthLoading(false);
     }
