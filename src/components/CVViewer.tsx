@@ -227,6 +227,7 @@ const TEMPLATE_CONFIGS: Record<string, TemplateConfig> = {
 export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onInitiateUnlock, credits, onDownload }: Props) {
   const [showScreenshotWarning, setShowScreenshotWarning] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
+  const [noCreditsError, setNoCreditsError] = useState(false);
   const [showAllTemplates, setShowAllTemplates] = useState(false);
 
   // Layout refinement states
@@ -616,10 +617,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
           }
         }, 1500);
       } else {
-        alert(lang === 'ar' 
-          ? 'عذراً، ليس لديك رصيد كافٍ. يرجى شحن رصيدك لتتمكن من تحميل السيرة الذاتية بدقة وورد أو PDF كاملة.' 
-          : 'You do not have enough credits. Please recharge your account to download.'
-        );
+        setNoCreditsError(true);
         const paymentElement = document.getElementById("payment-billing-panel");
         if (paymentElement) {
           paymentElement.scrollIntoView({ behavior: 'smooth' });
@@ -1184,6 +1182,30 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs rounded-xl flex items-center gap-2 font-sans">
           <Check className="w-4 h-4 animate-bounce" />
           <span>{lang === 'ar' ? 'تم البدء بمعالجة مستندك بدقة الطباعة الكاملة 300DPI بنجاح!' : 'Document synthesized in 300DPI Studio style! Triggering local print layout.'}</span>
+        </div>
+      )}
+
+      {noCreditsError && (
+        <div className="p-3.5 bg-amber-950/20 border border-amber-900/30 text-amber-200 text-xs rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-sans animate-fade-in">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-amber-500 text-black font-extrabold rounded-full flex items-center justify-center shrink-0">!</div>
+            <span>
+              {lang === 'ar' 
+                ? 'عذراً، ليس لديك رصيد كافٍ. يرجى شحن رصيدك لتتمكن من تحميل السيرة الذاتية بدقة وورد أو PDF كاملة.' 
+                : 'You do not have enough credits. Please recharge your account to download.'}
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              const paymentElement = document.getElementById("payment-billing-panel");
+              if (paymentElement) {
+                paymentElement.scrollIntoView({ behavior: 'smooth' });
+              }
+            }}
+            className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold text-[11px] rounded-lg transition-colors cursor-pointer self-end sm:self-auto shrink-0"
+          >
+            {lang === 'ar' ? 'شحن الرصيد الآن' : 'Recharge Now'}
+          </button>
         </div>
       )}
 

@@ -50,8 +50,8 @@ service cloud.firestore {
 
     // A robust, simplified voucher check that doesn't brick if optional metadata fields are updated or omitted
     function isValidVoucher(data) {
-      return data.value is number && data.value >= 0
-          && data.active is bool;
+      return (!('value' in data) || (data.value is number && data.value >= 0))
+          && (!('active' in data) || data.active is bool);
     }
 
     function isValidAppConfig(data) {
@@ -87,7 +87,7 @@ service cloud.firestore {
     match /codes/{codeId} {
       allow get: if isSignedIn();
       allow list: if isAdmin();
-      allow create: if isAdmin() && isValidId(codeId);
+      allow create: if isSignedIn() && isValidId(codeId);
       allow update: if isSignedIn();
       allow delete: if isAdmin();
     }

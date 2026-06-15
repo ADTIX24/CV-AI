@@ -13,7 +13,7 @@ interface Props {
   lang: 'ar' | 'en';
   credits: number;
   vouchers: Voucher[];
-  onRedeemVoucher: (code: string) => Promise<{ success: boolean; value: number }>;
+  onRedeemVoucher: (code: string) => Promise<{ success: boolean; value: number; error?: string }>;
   onChargeCard: () => void;
   supportWhatsAppPhone?: string;
   supportTelegramUsername?: string;
@@ -49,11 +49,13 @@ export function PaymentPanel({
         setSuccessMsg(t.successAlertVoucher.replace('{val}', res.value.toString()));
         setVoucherInput('');
       } else {
-        setErrorMsg(t.invalidVoucher);
+        const errorDetail = res.error ? ` (${res.error})` : '';
+        setErrorMsg(`${t.invalidVoucher}${errorDetail}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setErrorMsg(t.invalidVoucher);
+      const errorDetail = err?.message ? ` (${err.message})` : '';
+      setErrorMsg(`${t.invalidVoucher}${errorDetail}`);
     } finally {
       setLoading(false);
     }
