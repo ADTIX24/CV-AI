@@ -1472,15 +1472,36 @@ export default function App() {
 
                 if (updatedUser && checkIsAdmin()) {
                   try {
-                    const refs = [doc(db, 'users', updatedUser.id)];
-                    const emailKey = (updatedUser.email || '').toLowerCase().trim();
-                    if (emailKey && emailKey !== updatedUser.id) {
-                      refs.push(doc(db, 'users', emailKey));
-                    }
+                    // Collect all unique record search keys to update for this user (both UID and clean email mapping)
+                    const uniqueKeys = new Set<string>();
                     
-                    for (const ref of refs) {
-                      await setDoc(ref, { ...updatedUser, id: ref.id }, { merge: true });
-                      console.log(`Successfully synchronized write to user doc: ${ref.path}`);
+                    if (updatedUser.id) uniqueKeys.add(updatedUser.id);
+                    if (updatedUser.uid) uniqueKeys.add(updatedUser.uid);
+                    
+                    // Look in usersDb for any counterpart record that matches the same email but has a different ID
+                    const emailNormalized = (updatedUser.email || '').toLowerCase().trim();
+                    if (emailNormalized) {
+                      uniqueKeys.add(emailNormalized);
+                      usersDb.forEach(u => {
+                        if (u.email && u.email.toLowerCase().trim() === emailNormalized) {
+                          if (u.id) uniqueKeys.add(u.id);
+                          if (u.uid) uniqueKeys.add(u.uid);
+                        }
+                      });
+                    }
+
+                    // Remove empty keys, non-string, or generic placeholders
+                    const resolvedKeys = Array.from(uniqueKeys).filter(k => k && typeof k === 'string' && !k.startsWith('no-email-placeholder'));
+                    console.log("[Admin Sync] Resolved target keys for user updates:", resolvedKeys);
+
+                    for (const key of resolvedKeys) {
+                      const ref = doc(db, 'users', key);
+                      await setDoc(ref, { 
+                        ...updatedUser, 
+                        id: key,
+                        uid: updatedUser.uid || (key.includes('@') ? '' : key),
+                      }, { merge: true });
+                      console.log(`[Admin Sync] Successfully synchronized write to user doc: ${ref.path}`);
                     }
                   } catch (err) {
                     console.warn("Single user write skipped, applying fallback:", err);
@@ -1490,7 +1511,7 @@ export default function App() {
                   
                   // Keep active user credits updated
                   const authEmail = auth.currentUser?.email || '';
-                  if (updatedUser.id === auth.currentUser?.uid || (authEmail && updatedUser.email?.toLowerCase().trim() === authEmail.toLowerCase().trim())) {
+                  if (updatedUser.id === auth.currentUser?.uid || updatedUser.uid === auth.currentUser?.uid || (authEmail && updatedUser.email?.toLowerCase().trim() === authEmail.toLowerCase().trim())) {
                     setUserCredits(updatedUser.credits);
                   }
                 } else {
