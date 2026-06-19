@@ -265,279 +265,44 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     return "'Cairo', 'Inter', sans-serif";
   };
 
-  const downloadAsHTML = () => {
+  const downloadAsPDF = () => {
     const documentElement = document.getElementById("cv-rendered-document-face");
     if (!documentElement) return;
 
-    const htmlContent = documentElement.innerHTML;
-    const fontImports = `
-      @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&family=Amiri:ital,wght@0,400;0,700;1,400&family=Harmattan:wght@400;700&family=Cairo:wght@300;400;600;700;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
-    `;
+    const runHtml2Pdf = () => {
+      const element = documentElement;
+      
+      const opt = {
+        margin:       [0, 0, 0, 0],
+        filename:     `${profile.fullName || 'CV'}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { 
+          scale: 2, 
+          useCORS: true, 
+          letterRendering: true,
+          scrollX: 0,
+          scrollY: 0,
+        },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
 
-    const fullPageString = `
-      <!DOCTYPE html>
-      <html lang="${lang}" dir="${lang === 'ar' ? 'rtl' : 'ltr'}">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>${profile.fullName || 'CV_AI'}</title>
-        <script>
-          window.tailwind = {
-            config: {
-              theme: {
-                extend: {
-                  fontFamily: {
-                    sans: ["Cairo", "Inter", "sans-serif"],
-                    serif: ["Amiri", "serif"],
-                    mono: ["JetBrains Mono", "monospace"],
-                    tajawal: ["Tajawal", "sans-serif"],
-                    harmattan: ["Harmattan", "sans-serif"],
-                    cairo: ["Cairo", "sans-serif"],
-                    inter: ["Inter", "sans-serif"],
-                  }
-                }
-              }
-            }
-          }
-        </script>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <style>
-          ${fontImports}
-          @page {
-            size: A4 portrait;
-            margin: 0 !important;
-          }
-          body {
-            background-color: #f4f4f5;
-            padding: 24px;
-            display: flex;
-            justify-content: center;
-            font-family: ${getMappedFontCSS()};
-          }
-          * {
-            font-family: ${getMappedFontCSS()} !important;
-          }
-          [dir="rtl"], :lang(ar) {
-            letter-spacing: 0px !important;
-            word-spacing: 0.05rem !important;
-          }
+      (window as any).html2pdf().from(element).set(opt).save();
+    };
 
-          /* Force high-fidelity desktop multi-column and layout system inside A4 page regardless of device/viewport */
-          .cv-print-container .grid {
-            display: grid !important;
-          }
-          .cv-print-container .grid-cols-1 {
-            grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
-          }
-          .cv-print-container .md\:grid-cols-12 {
-            grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
-          }
-          .cv-print-container .md\:col-span-12 {
-            grid-column: span 12 / span 12 !important;
-          }
-          .cv-print-container .md\:col-span-9 {
-            grid-column: span 9 / span 9 !important;
-          }
-          .cv-print-container .md\:col-span-8 {
-            grid-column: span 8 / span 8 !important;
-          }
-          .cv-print-container .md\:col-span-7 {
-            grid-column: span 7 / span 7 !important;
-          }
-          .cv-print-container .md\:col-span-5 {
-            grid-column: span 5 / span 5 !important;
-          }
-          .cv-print-container .md\:col-span-4 {
-            grid-column: span 4 / span 4 !important;
-          }
-          .cv-print-container .md\:col-span-3 {
-            grid-column: span 3 / span 3 !important;
-          }
-          .cv-print-container .flex-col {
-            display: flex !important;
-            flex-direction: column !important;
-          }
-          .cv-print-container .md\:flex-row {
-            flex-direction: row !important;
-            display: flex !important;
-          }
-          .cv-print-container .md\:text-left {
-            text-align: left !important;
-          }
-          [dir="rtl"] .cv-print-container .md\:text-left {
-            text-align: right !important;
-          }
-          .cv-print-container .md\:justify-start {
-            justify-content: flex-start !important;
-          }
-          .cv-print-container .justify-center {
-            justify-content: center !important;
-          }
-          .cv-print-container .md\:self-start {
-            align-self: flex-start !important;
-          }
-          .cv-print-container .md\:border-r {
-            border-right-width: 1px !important;
-            border-left-width: 0px !important;
-            border-style: solid !important;
-          }
-          .cv-print-container .md\:border-l {
-            border-left-width: 1px !important;
-            border-right-width: 0px !important;
-            border-style: solid !important;
-          }
-          [dir="rtl"] .cv-print-container .md\:border-r {
-            border-left-width: 1px !important;
-            border-right-width: 0px !important;
-            border-style: solid !important;
-          }
-          [dir="rtl"] .cv-print-container .md\:border-l {
-            border-right-width: 1px !important;
-            border-left-width: 0px !important;
-            border-style: solid !important;
-          }
-          .cv-print-container .md\:order-1 {
-            order: 1 !important;
-          }
-          .cv-print-container .md\:order-2 {
-            order: 2 !important;
-          }
-          .cv-print-container .order-2.md\:order-1 {
-            order: 1 !important;
-          }
-          .cv-print-container .md\:-mx-12 {
-            margin-left: -3rem !important;
-            margin-right: -3rem !important;
-          }
-          .cv-print-container .md\:-mt-12 {
-            margin-top: -3rem !important;
-          }
-          .cv-print-container .md\:p-10 {
-            padding: 2.5rem !important;
-          }
-          .cv-print-container .md\:p-12 {
-            padding: 3rem !important;
-          }
-          .cv-print-container .md\:mt-0 {
-            margin-top: 0px !important;
-          }
-          .cv-print-container .md\:w-28 {
-            width: 7rem !important;
-          }
-          .cv-print-container .md\:h-28 {
-            height: 7rem !important;
-          }
-          .cv-print-container .md\:w-36 {
-            width: 9rem !important;
-          }
-          .cv-print-container .md\:h-36 {
-            height: 9rem !important;
-          }
-          .cv-print-container .md\:w-44 {
-            width: 11rem !important;
-          }
-          .cv-print-container .md\:h-44 {
-            height: 11rem !important;
-          }
-          .cv-print-container .justify-center.md\:justify-start {
-            justify-content: flex-start !important;
-          }
-          .cv-print-container .text-center.md\:text-left {
-            text-align: left !important;
-          }
-          [dir="rtl"] .cv-print-container .text-center.md\:text-left {
-            text-align: right !important;
-          }
-
-          @media print {
-            body {
-              background-color: #ffffff !important;
-              padding: 0 !important;
-              margin: 0 !important;
-              width: 210mm !important;
-              height: 297mm !important;
-              overflow: hidden !important;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
-            .cv-print-container {
-              box-shadow: none !important;
-              border: none !important;
-              border-radius: 0 !important;
-              padding: 10mm 15mm 10mm 15mm !important;
-              margin: 0 !important;
-              max-width: 210mm !important;
-              width: 210mm !important;
-              min-width: 210mm !important;
-              height: 297mm !important;
-              min-height: 297mm !important;
-              max-height: 297mm !important;
-              box-sizing: border-box !important;
-              background-color: #ffffff !important;
-              overflow: hidden !important;
-            }
-            #cv-rendered-document-face {
-              padding: 0 !important;
-              margin: 0 !important;
-              width: 100% !important;
-              height: 100% !important;
-              min-height: 100% !important;
-              max-height: 100% !important;
-              box-shadow: none !important;
-              border: none !important;
-              border-radius: 0 !important;
-              background-color: transparent !important;
-            }
-            .space-y-6 > * + * {
-              margin-top: 0.6rem !important;
-            }
-            .space-y-4 > * + * {
-              margin-top: 0.35rem !important;
-            }
-            .space-y-3 > * + * {
-              margin-top: 0.25rem !important;
-            }
-            .space-y-2 > * + * {
-              margin-top: 0.15rem !important;
-            }
-            p, span, li, h1, h2, h3, h4, div {
-              page-break-inside: avoid !important;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="cv-print-container w-full max-w-[210mm] min-h-[297mm] bg-white p-8 md:p-12 shadow-md rounded-xl">
-          ${htmlContent}
-        </div>
-        <script>
-          window.onload = function() {
-            if (document.fonts) {
-              document.fonts.ready.then(function() {
-                setTimeout(function() {
-                  window.print();
-                }, 1000);
-              });
-            } else {
-              setTimeout(function() {
-                window.print();
-              }, 1500);
-            }
-          }
-        </script>
-      </body>
-      </html>
-    `;
-
-    const blob = new Blob([fullPageString], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${profile.fullName || 'Resume'}_CV.html`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    if ((window as any).html2pdf) {
+      runHtml2Pdf();
+    } else {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+      script.onload = () => {
+        runHtml2Pdf();
+      };
+      script.onerror = () => {
+        alert("Failed to load PDF library. Launching system print instead.");
+        window.print();
+      };
+      document.body.appendChild(script);
+    }
   };
 
   // Generate and download fully formatted editable Word Document file (.doc)
@@ -592,7 +357,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     setTimeout(() => {
       setCopiedText(false);
       if (format === 'pdf') {
-        downloadAsHTML();
+        downloadAsPDF();
       } else {
         downloadAsWord();
       }

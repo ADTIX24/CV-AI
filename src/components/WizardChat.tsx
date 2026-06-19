@@ -18,10 +18,24 @@ interface Props {
 }
 
 export function WizardChat({ t, lang, profile, onUpdateProfile, onComplete }: Props) {
-  const [currentStep, setCurrentStep] = useState<number>(0);
-  const [chatLog, setChatLog] = useState<{ sender: 'ai' | 'user'; text: string }[]>([
-    { sender: 'ai', text: t.chatWelcome }
-  ]);
+  const [currentStep, setCurrentStep] = useState<number>(() => {
+    const saved = localStorage.getItem('cv_ai_wizard_step');
+    return saved ? parseInt(saved, 10) : 0;
+  });
+  const [chatLog, setChatLog] = useState<{ sender: 'ai' | 'user'; text: string }[]>(() => {
+    const saved = localStorage.getItem('cv_ai_wizard_chat');
+    return saved ? JSON.parse(saved) : [
+      { sender: 'ai', text: t.chatWelcome }
+    ];
+  });
+
+  React.useEffect(() => {
+    localStorage.setItem('cv_ai_wizard_step', currentStep.toString());
+  }, [currentStep]);
+
+  React.useEffect(() => {
+    localStorage.setItem('cv_ai_wizard_chat', JSON.stringify(chatLog));
+  }, [chatLog]);
 
   // Editing active records states
   const [editingExperienceId, setEditingExperienceId] = useState<string | null>(null);

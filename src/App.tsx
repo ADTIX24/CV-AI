@@ -440,7 +440,7 @@ export default function App() {
   useEffect(() => {
     if (isLoggedIn && redirectToWorkspaceOnLoginRef.current) {
       redirectToWorkspaceOnLoginRef.current = false;
-      handleCreateNewCV();
+      setActiveView('workspace');
     }
   }, [isLoggedIn]);
 
@@ -985,6 +985,8 @@ export default function App() {
     setUnlockedDownloads(false);
     setUnlockedCVSnapshot("");
     localStorage.removeItem('cv_ai_unlocked_snapshot');
+    localStorage.removeItem('cv_ai_wizard_step');
+    localStorage.removeItem('cv_ai_wizard_chat');
     setWizardKey(prev => prev + 1);
     setActiveView('workspace');
     setShowAccountModal(false);
@@ -992,7 +994,7 @@ export default function App() {
 
   const handleStartOrCreateSequence = () => {
     if (isLoggedIn) {
-      handleCreateNewCV();
+      setActiveView('workspace');
     } else {
       redirectToWorkspaceOnLoginRef.current = true;
       setShowLoginModal(true);
