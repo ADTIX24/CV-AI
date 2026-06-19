@@ -41,7 +41,7 @@ const isAiStudioSandbox = typeof window !== 'undefined' &&
 const config = userProdConfig.apiKey && !userProdConfig.apiKey.startsWith('{{')
   ? {
       apiKey: ((import.meta as any).env?.VITE_FIREBASE_API_KEY as string) || userProdConfig.apiKey,
-      authDomain: ((import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN as string) || getDynamicAuthDomain(),
+      authDomain: ((import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN as string) || userProdConfig.authDomain,
       projectId: ((import.meta as any).env?.VITE_FIREBASE_PROJECT_ID as string) || userProdConfig.projectId,
       storageBucket: ((import.meta as any).env?.VITE_FIREBASE_STORAGE_BUCKET as string) || userProdConfig.storageBucket,
       messagingSenderId: ((import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID as string) || userProdConfig.messagingSenderId,
