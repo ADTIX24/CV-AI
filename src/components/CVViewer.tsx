@@ -277,9 +277,11 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
 
     const iframe = document.createElement("iframe");
     iframe.id = "cv-print-iframe";
-    iframe.style.position = "absolute";
-    iframe.style.width = "0px";
-    iframe.style.height = "0px";
+    iframe.style.position = "fixed";
+    iframe.style.width = "1024px";
+    iframe.style.height = "1448px";
+    iframe.style.left = "-9999px";
+    iframe.style.top = "-9999px";
     iframe.style.border = "none";
     iframe.style.visibility = "hidden";
     
@@ -548,6 +550,13 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         try {
           iframeWindow?.focus();
           iframeWindow?.print();
+          // Safe asynchronous garbage collection of the offscreen rendering iframe to save memory
+          setTimeout(() => {
+            const currentIframe = document.getElementById("cv-print-iframe");
+            if (currentIframe) {
+              currentIframe.parentNode?.removeChild(currentIframe);
+            }
+          }, 4500);
         } catch (e) {
           console.error("Iframe print error", e);
           const win = window.open("", "_blank");
@@ -562,7 +571,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       }, 1200);
     };
 
-    const cdnScript = doc.querySelector('script[src*="tailwindcss"]');
+    const cdnScript = doc.querySelector('script[src*="tailwindcss"]') as HTMLScriptElement | null;
     if (cdnScript) {
       cdnScript.onload = triggerPrint;
     } else {

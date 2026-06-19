@@ -20,7 +20,7 @@ const getDynamicAuthDomain = () => {
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
     if (host.includes('cvai.website')) {
-      return host; // dynamic first-party domain
+      return host; // Dynamic first-party domain (e.g. www.cvai.website or cvai.website) matching the user's active hostname
     }
   }
   return userProdConfig.authDomain;
