@@ -59,9 +59,15 @@ export function compressImage(
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Export as JPEG with controlled quality factor to reduce final string size
-        // Personal profile avatars and logo icons look super sharp at 300px with 0.8 quality
-        const compressedBase64 = canvas.toDataURL('image/jpeg', quality);
+        // Preserve transparency by saving as image/png if original was png, webp or gif
+        let mimeType = 'image/jpeg';
+        if (base64Str.startsWith('data:image/png') || base64Str.startsWith('data:image/gif') || base64Str.startsWith('data:image/webp') || base64Str.startsWith('data:image/svg+xml')) {
+          mimeType = 'image/png';
+        }
+
+        const compressedBase64 = mimeType === 'image/jpeg' 
+          ? canvas.toDataURL('image/jpeg', quality)
+          : canvas.toDataURL('image/png');
         resolve(compressedBase64);
       } catch (err) {
         console.warn("Canvas image compression failed, fallback to original", err);

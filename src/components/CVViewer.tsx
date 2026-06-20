@@ -629,6 +629,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
           alt="Corporate portrait" 
           className="w-full h-full object-cover" 
           referrerPolicy="no-referrer"
+          crossOrigin="anonymous"
         />
       ) : profile.photoUrl ? (
         <img 
@@ -636,6 +637,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
           alt="Corporate portrait" 
           className="w-full h-full object-cover" 
           referrerPolicy="no-referrer"
+          crossOrigin="anonymous"
         />
       ) : null}
     </div>
@@ -655,6 +657,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         alt="Brand Logo" 
         className="max-w-full max-h-full object-contain mix-blend-multiply" 
         referrerPolicy="no-referrer" 
+        crossOrigin="anonymous"
       />
     </div>
   ) : null;
@@ -1382,7 +1385,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
               <div className="flex items-center gap-4 shrink-0">
                 {logoPosition !== 'none' && profile.logoUrl && (
                   <div className="w-14 h-14 bg-white/10 backdrop-blur-sm p-1.5 rounded-lg border border-white/20 overflow-hidden flex items-center justify-center shrink-0">
-                    <img src={profile.logoUrl} alt="Logo" className="max-w-full max-h-full object-contain brightness-0 invert" referrerPolicy="no-referrer" />
+                    <img src={profile.logoUrl} alt="Logo" className="max-w-full max-h-full object-contain brightness-0 invert" referrerPolicy="no-referrer" crossOrigin="anonymous" />
                   </div>
                 )}
                 {photoBox && (
