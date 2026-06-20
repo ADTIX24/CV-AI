@@ -15,7 +15,7 @@ import { Sparkles, Languages, Settings, Layout, Layers, ShieldAlert, Heart, LogI
 
 // Firebase core integration imports
 import { auth, db, googleProvider, OperationType, handleFirestoreError } from './lib/firebase';
-import { signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signInAnonymously } from 'firebase/auth';
+import { signInWithPopup, signOut, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signInAnonymously } from 'firebase/auth';
 import { doc, getDoc, setDoc, onSnapshot, collection, updateDoc, increment, runTransaction } from 'firebase/firestore';
 
 export default function App() {
@@ -908,56 +908,6 @@ export default function App() {
     }
   };
 
-  // Handle Google Redirect Sign-In capture on mount
-  useEffect(() => {
-    getRedirectResult(auth)
-      .then((result) => {
-        if (result && result.user) {
-          console.log("[Google Auth] Redirect login completed, user authenticated:", result.user);
-          const email = (result.user.email || '').toLowerCase().trim();
-          const name = result.user.displayName || email.split('@')[0] || 'Google User';
-          localStorage.setItem('cv_ai_is_logged_in', 'true');
-          localStorage.setItem('cv_ai_current_user_email', email);
-          localStorage.setItem('cv_ai_current_user_name', name);
-          setCurrentUserEmail(email);
-          setCurrentUserName(name);
-          setIsLoggedIn(true);
-          setShowLoginModal(false);
-          setLoginError('');
-        }
-      })
-      .catch((redirectErr: any) => {
-        console.error("[Google Auth] Redirect recovery failure:", redirectErr);
-        if (redirectErr.code === 'auth/unauthorized-domain' || (redirectErr.message && redirectErr.message.includes('unauthorized-domain'))) {
-          const errMsg = lang === 'ar'
-            ? 'عذراً، هذا النطاق غير مصرح به لتسجيل الدخول بـ Google في إعدادات مشروع Firebase. يرجى مراجعة قائمة النطاقات المصرح بها (Authorized Domains).'
-            : 'Sorry, this domain is not authorized for Google Sign-In in your Firebase project settings.';
-          setLoginError(errMsg);
-        } else if (redirectErr.code && redirectErr.code !== 'auth/unknown') {
-          const errMsg = lang === 'ar'
-            ? `فشل تسجيل الدخول من Google (Direct): ${redirectErr.message || String(redirectErr)}`
-            : `Google Redirect authentication failed: ${redirectErr.message || String(redirectErr)}`;
-          setLoginError(errMsg);
-        }
-      });
-  }, [lang]);
-
-  const triggerGoogleLoginRedirect = async () => {
-    setAuthLoading(true);
-    setLoginError('');
-    try {
-      console.log("[Google Auth] Initializing signInWithRedirect alternate flow...");
-      await signInWithRedirect(auth, googleProvider);
-    } catch (redirectErr: any) {
-      console.error("[Google Auth] REDIRECT ERROR:", redirectErr);
-      let errMsg = lang === 'ar'
-        ? `عطل في نظام التوجيه المباشر: ${redirectErr.message || String(redirectErr)}`
-        : `Google Redirect failed: ${redirectErr.message || String(redirectErr)}`;
-      setLoginError(errMsg);
-      setAuthLoading(false);
-    }
-  };
-
   const handleLogin = (emailStr: string, nameStr: string) => {
     // Already handled in actual Firebase onAuthStateChanged listener
   };
@@ -1767,37 +1717,27 @@ export default function App() {
                     <div className="space-y-2">
                       <button
                         onClick={triggerGoogleLoginPopup}
-                        className="w-full p-4 rounded-xl border border-zinc-900 hover:border-violet-500/30 bg-zinc-950/40 hover:bg-zinc-900/40 text-right flex items-start gap-3.5 transition-all group cursor-pointer"
+                        disabled={authLoading}
+                        className="w-full p-4 rounded-xl border border-zinc-900 hover:border-violet-500/30 bg-zinc-950/40 hover:bg-zinc-900/40 text-right flex items-start gap-3.5 transition-all group cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
                       >
                         <div className="p-2 ml-1 rounded-lg bg-zinc-900 text-violet-400 shrink-0 group-hover:bg-violet-600/10 transition-colors">
-                          <Chrome className="w-4.5 h-4.5" />
+                          {authLoading ? (
+                            <div className="w-4.5 h-4.5 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <Chrome className="w-4.5 h-4.5" />
+                          )}
                         </div>
                         <div className="font-sans space-y-1 flex-1">
-                          <div className="text-xs font-bold text-white group-hover:text-violet-400 transition-colors">
-                            {lang === 'ar' ? '2. تسجيل الدخول السريع عبر Google (الأساسي)' : '2. Quick Google Sign-In (Default)'}
+                          <div className="text-xs font-bold text-white group-hover:text-violet-400 transition-colors flex items-center justify-between">
+                            <span>{lang === 'ar' ? 'تسجيل الدخول السريع عبر Google (Gmail)' : 'Quick Login with Google (Gmail)'}</span>
+                            {authLoading && (
+                              <span className="text-[10px] text-violet-400 animate-pulse">
+                                {lang === 'ar' ? 'جاري الاتصال...' : 'Connecting...'}
+                              </span>
+                            )}
                           </div>
                           <div className="text-[11px] text-zinc-500">
-                            {lang === 'ar' ? 'طريقة سريعة تفتح نافذة الحسابات تلقائياً (مناسبة للهاتف).' : 'Pop-up authorization, optimized for mobile devices and quick access.'}
-                          </div>
-                        </div>
-                      </button>
-                    </div>
-
-                    {/* Option 3: Google - Redirect Fallback */}
-                    <div className="space-y-2">
-                      <button
-                        onClick={triggerGoogleLoginRedirect}
-                        className="w-full p-4 rounded-xl border border-zinc-900 hover:border-violet-500/30 bg-zinc-950/40 hover:bg-zinc-900/40 text-right flex items-start gap-3.5 transition-all group cursor-pointer"
-                      >
-                        <div className="p-2 ml-1 rounded-lg bg-zinc-900 text-violet-400 shrink-0 group-hover:bg-violet-600/10 transition-colors">
-                          <ExternalLink className="w-4.5 h-4.5" />
-                        </div>
-                        <div className="font-sans space-y-1 flex-1">
-                          <div className="text-xs font-bold text-white group-hover:text-violet-400 transition-colors">
-                            {lang === 'ar' ? '3. تسجيل دخول مباشر بديل (نظام إعادة التوجيه)' : '3. Alternative Direct login (Redirect Mode)'}
-                          </div>
-                          <div className="text-[11px] text-zinc-500">
-                            {lang === 'ar' ? 'الخيار الاحترافي الأقوى لحل مشكلة الحظر أو عدم ظهور القائمة في لابتوب كروم.' : 'Recommended for laptop Chrome or if the pop-up list does not appear.'}
+                            {lang === 'ar' ? 'تسجيل دخول فوري وآمن يفتح نافذة الحسابات تلقائياً.' : 'Secure, one-tap access with your official Google account.'}
                           </div>
                         </div>
                       </button>

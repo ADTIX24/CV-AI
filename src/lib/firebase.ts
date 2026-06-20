@@ -13,19 +13,6 @@ const userProdConfig = {
   appId: "1:785621576153:web:f1ce42e01c92ee256f91c8",
 };
 
-// Helper to determine the optimal authDomain dynamically
-// For browsers that block third-party cookies (Chrome/Safari/Opera), using the custom domain itself
-// as the authDomain allows first-party cookie handling (coupled with a Vercel routing /__/auth rewrite)
-const getDynamicAuthDomain = () => {
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname;
-    if (host.includes('cvai.website')) {
-      return host; // Dynamic first-party domain (e.g. www.cvai.website or cvai.website) matching the user's active hostname
-    }
-  }
-  return userProdConfig.authDomain;
-};
-
 // Support Vercel / local production environments or fall back to sandbox if no custom keys are present
 const isAiStudioSandbox = typeof window !== 'undefined' && 
   (window.location.hostname.includes('.run.app') || 
@@ -41,7 +28,7 @@ const isAiStudioSandbox = typeof window !== 'undefined' &&
 const config = userProdConfig.apiKey && !userProdConfig.apiKey.startsWith('{{')
   ? {
       apiKey: ((import.meta as any).env?.VITE_FIREBASE_API_KEY as string) || userProdConfig.apiKey,
-      authDomain: ((import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN as string) || getDynamicAuthDomain(),
+      authDomain: ((import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN as string) || userProdConfig.authDomain,
       projectId: ((import.meta as any).env?.VITE_FIREBASE_PROJECT_ID as string) || userProdConfig.projectId,
       storageBucket: ((import.meta as any).env?.VITE_FIREBASE_STORAGE_BUCKET as string) || userProdConfig.storageBucket,
       messagingSenderId: ((import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID as string) || userProdConfig.messagingSenderId,
