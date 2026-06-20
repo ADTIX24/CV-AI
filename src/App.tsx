@@ -255,7 +255,7 @@ export default function App() {
           // Keep current user credits state in lockstep with userCredits
           return prev.map(u => {
             const isSelf = u.id === auth.currentUser?.uid || u.email?.toLowerCase().trim() === email;
-            if (isSelf && u.credits !== userCredits) {
+            if (isSelf && userCredits > 0 && u.credits !== userCredits) {
               return { ...u, credits: userCredits };
             }
             return u;
@@ -629,7 +629,11 @@ export default function App() {
 
   // 6. Active Profile Syncing callback (Local Backup only, cloud saving happens upon unlocking/downloading)
   useEffect(() => {
-    localStorage.setItem('cv_ai_profile', JSON.stringify(profile));
+    try {
+      localStorage.setItem('cv_ai_profile', JSON.stringify(profile));
+    } catch (e) {
+      console.warn("Local storage active profile backup aborted:", e);
+    }
   }, [profile]);
 
   // 7. LocalStorage backup checks for sales

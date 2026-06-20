@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { ToggleLeft, Database, Settings2, BarChart3, Users, Ticket, Copy, FileSpreadsheet, Plus, ShieldCheck, Heart, Share2, Trash2, Globe, FileText, Link, Languages, Gift, RefreshCw } from 'lucide-react';
 import { Voucher, AppConfig as AppConfigType, ClientAccount, SystemStats, SocialLink, CustomPage } from '../types';
 import { AppTranslation } from '../translations';
+import { compressImage } from '../lib/image';
 
 interface Props {
   t: AppTranslation;
@@ -372,10 +373,18 @@ export function AdminDashboard({ t, lang, config, onUpdateConfig, vouchers, onAd
                     const file = e.target.files?.[0];
                     if (file) {
                       const reader = new FileReader();
-                      reader.onload = () => {
-                        onUpdateConfig({ ...config, logoUrl: reader.result as string });
-                        setSuccessStatus(lang === 'ar' ? 'تم رفع الشعار وحفظه بنجاح ✦' : 'Dynamic brand logo synthesized successfully!');
-                        setTimeout(() => setSuccessStatus(''), 2500);
+                      reader.onload = async () => {
+                        if (typeof reader.result === 'string') {
+                          try {
+                            const compressed = await compressImage(reader.result, 250, 250, 0.85);
+                            onUpdateConfig({ ...config, logoUrl: compressed });
+                          } catch (err) {
+                            console.error("Dynamic brand base64 logo compression warning:", err);
+                            onUpdateConfig({ ...config, logoUrl: reader.result });
+                          }
+                          setSuccessStatus(lang === 'ar' ? 'تم رفع الشعار وحفظه بنجاح ✦' : 'Dynamic brand logo synthesized successfully!');
+                          setTimeout(() => setSuccessStatus(''), 2500);
+                        }
                       };
                       reader.readAsDataURL(file);
                     }

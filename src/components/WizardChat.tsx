@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { Send, Sparkles, Plus, Trash2, ArrowRight, ArrowLeft, CheckCircle, Shield, Globe } from 'lucide-react';
 import { CVProfile, WorkExperience, Education, Language } from '../types';
 import { AppTranslation } from '../translations';
+import { compressImage } from '../lib/image';
 
 interface Props {
   key?: any;
@@ -1248,9 +1249,16 @@ export function WizardChat({ t, lang, profile, onUpdateProfile, onComplete }: Pr
                           const file = e.target.files?.[0];
                           if (file) {
                             const reader = new FileReader();
-                            reader.onload = () => {
+                            reader.onload = async () => {
                               if (typeof reader.result === 'string') {
-                                handleTextChange('photoUrl', reader.result);
+                                try {
+                                  // Downscale to max 300x300 for personal photo to save space and memory
+                                  const compressed = await compressImage(reader.result, 300, 300, 0.8);
+                                  handleTextChange('photoUrl', compressed);
+                                } catch (err) {
+                                  console.error("Compression warning:", err);
+                                  handleTextChange('photoUrl', reader.result);
+                                }
                               }
                             };
                             reader.readAsDataURL(file);
@@ -1308,9 +1316,16 @@ export function WizardChat({ t, lang, profile, onUpdateProfile, onComplete }: Pr
                           const file = e.target.files?.[0];
                           if (file) {
                             const reader = new FileReader();
-                            reader.onload = () => {
+                            reader.onload = async () => {
                               if (typeof reader.result === 'string') {
-                                handleTextChange('logoUrl', reader.result);
+                                try {
+                                  // Downscale to max 250x250 for custom brand logo to save space and memory
+                                  const compressed = await compressImage(reader.result, 250, 250, 0.85);
+                                  handleTextChange('logoUrl', compressed);
+                                } catch (err) {
+                                  console.error("Compression warning:", err);
+                                  handleTextChange('logoUrl', reader.result);
+                                }
                               }
                             };
                             reader.readAsDataURL(file);
