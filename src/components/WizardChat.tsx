@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { Send, Sparkles, Plus, Trash2, ArrowRight, ArrowLeft, CheckCircle, Shield, Globe } from 'lucide-react';
+import { Send, Sparkles, Plus, Trash2, ArrowRight, ArrowLeft, CheckCircle, Shield, Globe, RotateCcw } from 'lucide-react';
 import { CVProfile, WorkExperience, Education, Language } from '../types';
 import { AppTranslation } from '../translations';
 import { compressImage } from '../lib/image';
@@ -16,9 +16,10 @@ interface Props {
   profile: CVProfile;
   onUpdateProfile: (p: CVProfile) => void;
   onComplete: () => void;
+  onStartFresh?: () => void;
 }
 
-export function WizardChat({ t, lang, profile, onUpdateProfile, onComplete }: Props) {
+export function WizardChat({ t, lang, profile, onUpdateProfile, onComplete, onStartFresh }: Props) {
   const [currentStep, setCurrentStep] = useState<number>(() => {
     const saved = localStorage.getItem('cv_ai_wizard_step');
     return saved ? parseInt(saved, 10) : 0;
@@ -522,9 +523,22 @@ export function WizardChat({ t, lang, profile, onUpdateProfile, onComplete }: Pr
       {/* LEFT AREA: Conversational Chatlog Bot Display */}
       <div className="lg:col-span-5 bg-zinc-900/60 rounded-2xl p-5 border border-zinc-800/80 flex flex-col justify-between h-[520px]">
         <div>
-          <div className="flex items-center gap-2 pb-4 border-b border-zinc-800">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <h4 className="text-xs uppercase font-mono tracking-wider text-zinc-300 font-bold">{t.chatBotName}</h4>
+          <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <h4 className="text-xs uppercase font-mono tracking-wider text-zinc-300 font-bold">{t.chatBotName}</h4>
+            </div>
+            {onStartFresh && (
+              <button
+                onClick={onStartFresh}
+                className="px-2 py-1 sm:px-3 sm:py-1.5 rounded-xl bg-rose-950/20 hover:bg-rose-900/40 text-rose-300 hover:text-rose-200 border border-rose-900/40 hover:border-rose-700/60 transition-all text-[11px] flex items-center gap-1 sm:gap-1.5 font-sans cursor-pointer font-bold shrink-0 shadow-sm active:scale-95 duration-150"
+                id="reset-flow-btn-wizard"
+                title={lang === 'ar' ? 'البدء من جديد وإنشاء سيرة ذاتية فرغة' : 'Reset and start a clean new build'}
+              >
+                <RotateCcw className="w-3.5 h-3.5 select-none" />
+                <span>{lang === 'ar' ? 'ابدأ من جديد' : 'Reset' }</span>
+              </button>
+            )}
           </div>
 
           <div className="space-y-4 pt-4 overflow-y-auto max-h-[360px] pr-2 scrollbar-none">

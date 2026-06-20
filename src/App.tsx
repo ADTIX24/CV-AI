@@ -11,7 +11,7 @@ import { WizardChat } from './components/WizardChat';
 import { CVViewer } from './components/CVViewer';
 import { PaymentPanel } from './components/PaymentPanel';
 import { AdminDashboard } from './components/AdminDashboard';
-import { Sparkles, Languages, Settings, Layout, Layers, ShieldAlert, Heart, LogIn, Facebook, Instagram, Linkedin, Send, Twitter, Youtube, Phone, Globe, Info, HelpCircle, FileText, X, User, Lock, Chrome, BookOpen, LogOut, Check, ExternalLink, Copy, AlertTriangle } from 'lucide-react';
+import { Sparkles, Languages, Settings, Layout, Layers, ShieldAlert, Heart, LogIn, Facebook, Instagram, Linkedin, Send, Twitter, Youtube, Phone, Globe, Info, HelpCircle, FileText, X, User, Lock, Chrome, BookOpen, LogOut, Check, ExternalLink, Copy, AlertTriangle, RotateCcw } from 'lucide-react';
 
 // Firebase core integration imports
 import { auth, db, googleProvider, OperationType, handleFirestoreError } from './lib/firebase';
@@ -1133,6 +1133,40 @@ export default function App() {
     }
   };
 
+  const handleSaveToProfile = async (): Promise<boolean> => {
+    if (!isLoggedIn || !auth.currentUser) {
+      setShowLoginModal(true);
+      return false;
+    }
+
+    const userId = auth.currentUser.uid;
+    const userEmail = (currentUserEmail || '').toLowerCase().trim();
+    const pId = profile.id || `cv_${Date.now()}`;
+
+    const updatedProfile = {
+      ...profile,
+      id: pId
+    };
+
+    const resumeRefs = [doc(db, 'users', userId, 'resumes', pId)];
+    if (userEmail && userEmail !== userId) {
+      resumeRefs.push(doc(db, 'users', userEmail, 'resumes', pId));
+    }
+
+    let savedSucceeded = false;
+    for (const rr of resumeRefs) {
+      try {
+        await setDoc(rr, { ...updatedProfile, email: currentUserEmail }, { merge: true });
+        savedSucceeded = true;
+        console.log(`CV manually saved successfully under path: ${rr.path}`);
+      } catch (err: any) {
+        console.warn(`Failed to manually save CV under path ${rr.path}:`, err);
+        handleFirestoreError(err, OperationType.WRITE, rr.path);
+      }
+    }
+    return savedSucceeded;
+  };
+
   return (
     <div className="min-h-screen bg-[#030712] text-zinc-100 flex flex-col justify-between font-sans relative overflow-x-hidden selection:bg-violet-500/30 selection:text-white" id="main-application-frame">
       {/* Background Neon Spotlights and Glowing Grid */}
@@ -1179,8 +1213,8 @@ export default function App() {
           >
             {lang === 'ar' ? (
               <>
-                <span className="hidden sm:inline font-sans">إنشاء سيرة ذاتية</span>
-                <span className="inline sm:hidden font-sans">إنشاء CV</span>
+                <span className="hidden sm:inline font-sans font-semibold">إنشاء سيرة ذاتية</span>
+                <span className="inline sm:hidden font-sans font-semibold">إنشاء CV</span>
               </>
             ) : (
               'Build CV'
@@ -1344,6 +1378,7 @@ export default function App() {
                       viewerElement.scrollIntoView({ behavior: 'smooth' });
                     }
                   }}
+                  onStartFresh={handleCreateNewCV}
                 />
               </div>
 
@@ -1365,6 +1400,7 @@ export default function App() {
                   onInitiateUnlock={handleUnlockCV}
                   credits={userCredits}
                   onDownload={handleSaveOnDownload}
+                  onSaveProfile={handleSaveToProfile}
                 />
               </div>
 

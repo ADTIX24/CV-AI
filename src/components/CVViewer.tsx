@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { Eye, ShieldAlert, FileText, Download, Lock, Check, BookOpen, AlertTriangle } from 'lucide-react';
+import { Eye, ShieldAlert, FileText, Download, Lock, Check, BookOpen, AlertTriangle, Image, Save } from 'lucide-react';
 import { CVProfile } from '../types';
 import { AppTranslation } from '../translations';
 import { jsPDF } from 'jspdf';
@@ -19,6 +19,7 @@ interface Props {
   onInitiateUnlock: () => void;
   credits: number;
   onDownload?: () => void;
+  onSaveProfile?: () => Promise<boolean>;
 }
 
 interface TemplateConfig {
@@ -226,12 +227,31 @@ const TEMPLATE_CONFIGS: Record<string, TemplateConfig> = {
   }
 };
 
-export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onInitiateUnlock, credits, onDownload }: Props) {
+export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onInitiateUnlock, credits, onDownload, onSaveProfile }: Props) {
   const [showScreenshotWarning, setShowScreenshotWarning] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
   const [noCreditsError, setNoCreditsError] = useState(false);
   const [showAllTemplates, setShowAllTemplates] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  const handleSaveClick = async () => {
+    if (!onSaveProfile) return;
+    setSaveStatus('saving');
+    try {
+      const success = await onSaveProfile();
+      if (success) {
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      } else {
+        setSaveStatus('error');
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      }
+    } catch (e) {
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    }
+  };
 
   // Layout refinement states
   const [cvFontSize, setCvFontSize] = useState<'sm' | 'md' | 'lg' | 'xl' | 'xxl'>('md');
@@ -268,13 +288,97 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     return "'Cairo', 'Inter', sans-serif";
   };
 
-  const downloadAsPDF = async () => {
+  const generateHighQualityCanvas = async (scaleVal: number): Promise<HTMLCanvasElement> => {
     const documentElement = document.getElementById("cv-rendered-document-face");
-    if (!documentElement) return;
+    if (!documentElement) throw new Error("Document face element not found");
 
+    const options = {
+      scale: scaleVal,
+      useCORS: true,
+      allowTaint: false, // Ensures toDataURL never crashes due to cross-origin images
+      backgroundColor: '#ffffff',
+      logging: false,
+      windowWidth: 1024, // Forces desktop viewport simulation
+      onclone: (clonedDoc: Document) => {
+        // Hide screenshot warnings
+        const warning = clonedDoc.getElementById('screenshot-protection-panel');
+        if (warning) {
+          warning.style.setProperty('display', 'none', 'important');
+        }
+        const element = clonedDoc.getElementById('cv-rendered-document-face');
+        if (element) {
+          // Lock A4 dimensions to guarantee perfect layout and prevent squishing/mobile collapse
+          element.style.setProperty('width', '210mm', 'important');
+          element.style.setProperty('min-width', '210mm', 'important');
+          element.style.setProperty('max-width', '210mm', 'important');
+          element.style.setProperty('box-shadow', 'none', 'important');
+          element.style.setProperty('border-radius', '0px', 'important');
+          element.style.setProperty('border', 'none', 'important');
+
+          // Force all elements inside the cloned tree to apply desktop/md: rules to bypass mobile screen media query limits:
+          const allColl = element.querySelectorAll('*');
+          allColl.forEach((item) => {
+            const htmlItem = item as HTMLElement;
+            const classes = htmlItem.className || '';
+
+            // 1. Force Grid Columns
+            if (classes.includes('md:grid-cols-12')) {
+              htmlItem.style.setProperty('display', 'grid', 'important');
+              htmlItem.style.setProperty('grid-template-columns', 'repeat(12, minmax(0, 1fr))', 'important');
+            }
+            if (classes.includes('md:grid-cols-1')) {
+              htmlItem.style.setProperty('grid-template-columns', 'repeat(1, minmax(0, 1fr))', 'important');
+            }
+
+            // 2. Force Grid Col Spans
+            const colSpanMatch = classes.match(/md:col-span-(\d+)/);
+            if (colSpanMatch && colSpanMatch[1]) {
+              htmlItem.style.setProperty('grid-column', `span ${colSpanMatch[1]} / span ${colSpanMatch[1]}`, 'important');
+            }
+
+            // 3. Force Flex Directions
+            if (classes.includes('md:flex-row')) {
+              htmlItem.style.setProperty('flex-direction', 'row', 'important');
+              htmlItem.style.setProperty('display', 'flex', 'important');
+            }
+
+            // 4. Force Text Alignment
+            if (classes.includes('md:text-left')) {
+              htmlItem.style.setProperty('text-align', 'left', 'important');
+            } else if (classes.includes('md:text-right')) {
+              htmlItem.style.setProperty('text-align', 'right', 'important');
+            }
+
+            // 5. Force Justify and Align items
+            if (classes.includes('md:justify-start')) {
+              htmlItem.style.setProperty('justify-content', 'flex-start', 'important');
+            } else if (classes.includes('md:justify-end')) {
+              htmlItem.style.setProperty('justify-content', 'flex-end', 'important');
+            } else if (classes.includes('md:justify-between')) {
+              htmlItem.style.setProperty('justify-content', 'space-between', 'important');
+            }
+
+            // 6. Force Borders & Display Padding adjustments
+            if (classes.includes('md:border-r')) {
+              htmlItem.style.setProperty('border-right-width', '1px', 'important');
+            }
+            if (classes.includes('md:border-l')) {
+              htmlItem.style.setProperty('border-left-width', '1px', 'important');
+            }
+            if (classes.includes('md:p-12')) {
+              htmlItem.style.setProperty('padding', '3rem', 'important');
+            }
+          });
+        }
+      }
+    };
+
+    return await html2canvas(documentElement, options);
+  };
+
+  const downloadAsPDF = async () => {
     setPdfLoading(true);
 
-    // Dynamic scale levels for ultimate fault tolerance in mobile devices (starts at 2, scales down to 1 if browser fails due to memory/CORS)
     const scaleLevels = [2, 1.5, 1];
     let success = false;
     let lastError: any = null;
@@ -282,33 +386,9 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     for (const scaleVal of scaleLevels) {
       if (success) break;
       try {
-        // 1. Prepare options
-        const options = {
-          scale: scaleVal,
-          useCORS: true,
-          allowTaint: false, // DO NOT TAINT canvas, ensures toDataURL never crashes due to cross-origin images
-          backgroundColor: '#ffffff',
-          logging: false,
-          onclone: (clonedDoc: Document) => {
-            // Inside the cloned document, make sure we remove screenshot warnings & edit panels
-            const warning = clonedDoc.getElementById('screenshot-protection-panel');
-            if (warning) {
-              warning.style.setProperty('display', 'none', 'important');
-            }
-            const element = clonedDoc.getElementById('cv-rendered-document-face');
-            if (element) {
-              // Remove full rounded borders or extra custom shadows for print
-              element.style.boxShadow = 'none';
-              element.style.borderRadius = '0px';
-              element.style.border = 'none';
-            }
-          }
-        };
-
-        // 2. Generate Canvas
-        const canvas = await html2canvas(documentElement, options);
+        const canvas = await generateHighQualityCanvas(scaleVal);
         
-        // 3. Setup jsPDF A4 Document dimensions in mm
+        // Setup jsPDF A4 Document dimensions in mm
         const pdfWidth = 210; // 210mm wide (Standard A4 width)
         const pdfHeight = 297; // 297mm high (Standard A4 height)
         
@@ -320,16 +400,13 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         
         const pdf = new jsPDF('p', 'mm', 'a4');
         
-        // Let's parse custom pagination
         if (imgRatio <= pdfRatio + 0.05) {
-          // Fits perfectly inside 1 page
+          // Fits inside 1 page
           const imgData = canvas.toDataURL('image/jpeg', 0.95);
           pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
         } else {
           // Multi-page document
           const imgData = canvas.toDataURL('image/jpeg', 0.95);
-          
-          // Calculate total printed height in PDF mm based on viewport width
           const renderedHeightMm = (imgHeight * pdfWidth) / imgWidth;
           let heightLeftMm = renderedHeightMm;
           let positionMm = 0;
@@ -345,14 +422,10 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
           }
         }
 
-        // Save PDF output
+        // Save PDF output with sanitized name
         const sanitizedName = (profile.fullName || 'cv-professional').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
         pdf.save(`${sanitizedName || 'cv'}.pdf`);
 
-        // Call onDownload callback to trigger credits deduction
-        if (onDownload) {
-          onDownload();
-        }
         success = true;
         console.log(`PDF successfully generated with scale level: ${scaleVal}`);
         break;
@@ -367,6 +440,49 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     if (!success) {
       console.error("All PDF generation level options failed:", lastError);
       alert(lang === 'ar' ? 'حدث خطأ غير متوقع أثناء تحميل ملف الـ PDF. يرجى تجربة متصفح آخر أو مراجعة الدعم الفني.' : 'Unexpected error during PDF generation. Please try another browser or contact support.');
+    }
+  };
+
+  const downloadAsImage = async () => {
+    setPdfLoading(true);
+
+    const scaleLevels = [2, 1.5, 1];
+    let success = false;
+    let lastError: any = null;
+
+    for (const scaleVal of scaleLevels) {
+      if (success) break;
+      try {
+        const canvas = await generateHighQualityCanvas(scaleVal);
+        
+        // Export to lossless PNG format for ultimate font clarity
+        const imgData = canvas.toDataURL('image/png');
+        
+        // Download via virtual link anchor
+        const sanitizedName = (profile.fullName || 'cv-professional').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
+        const filename = `${sanitizedName || 'cv'}.png`;
+
+        const link = document.createElement('a');
+        link.href = imgData;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        success = true;
+        console.log(`Image successfully generated with scale level: ${scaleVal}`);
+        break;
+      } catch (error) {
+        console.warn(`Image compilation with scale:${scaleVal} failed, attempting next scale value...`, error);
+        lastError = error;
+      }
+    }
+
+    setPdfLoading(false);
+
+    if (!success) {
+      console.error("All Image generation options failed:", lastError);
+      alert(lang === 'ar' ? 'حدث خطأ غير متوقع أثناء تحميل ملف الصورة. يرجى تجربة متصفح آخر أو مراجعة الدعم الفني.' : 'Unexpected error during Image generation. Please try another browser or contact support.');
     }
   };
 
@@ -417,19 +533,21 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
   };
 
   // Trigger actual file compilation & downloads delivery
-  const handleExport = (format: 'pdf' | 'docx') => {
+  const handleExport = (format: 'pdf' | 'docx' | 'image') => {
     setCopiedText(true);
     setTimeout(() => {
       setCopiedText(false);
       if (format === 'pdf') {
         downloadAsPDF();
+      } else if (format === 'image') {
+        downloadAsImage();
       } else {
         downloadAsWord();
       }
     }, 1500);
   };
 
-  const handleDownloadAttempt = (format: 'pdf' | 'docx') => {
+  const handleDownloadAttempt = (format: 'pdf' | 'docx' | 'image') => {
     if (unlocked) {
       handleExport(format);
       if (onDownload) {
@@ -986,7 +1104,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         </div>
 
         {/* Action downloads - always visible with credit check */}
-        <div className="flex items-center gap-2 pt-2 xl:pt-0">
+        <div className="flex flex-wrap items-center gap-2 pt-2 xl:pt-0">
           <button
             onClick={() => handleDownloadAttempt('pdf')}
             disabled={copiedText}
@@ -997,6 +1115,15 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
             {copiedText ? (lang === 'ar' ? 'جاري التحضير...' : 'Compiling PDF...') : (lang === 'ar' ? 'تحميل كـ PDF' : 'Download PDF')}
           </button>
           <button
+            onClick={() => handleDownloadAttempt('image')}
+            disabled={copiedText}
+            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 transition-all shadow-md active:scale-95"
+            id="unlocked-image-download-btn"
+          >
+            <Image className="w-4 h-4 text-emerald-100" />
+            {lang === 'ar' ? 'تحميل كصورة (فائق الدقة)' : 'Download Image'}
+          </button>
+          <button
             onClick={() => handleDownloadAttempt('docx')}
             disabled={copiedText}
             className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-750 border border-zinc-700 text-zinc-200 font-bold text-xs flex items-center gap-2 transition-all active:scale-95"
@@ -1005,6 +1132,36 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
             <FileText className="w-4 h-4 text-blue-400" />
             {lang === 'ar' ? 'تحميل كـ Word' : 'Download DOCX'}
           </button>
+
+          {onSaveProfile && (
+            <button
+              onClick={handleSaveClick}
+              disabled={saveStatus === 'saving' || copiedText}
+              className={`px-4 py-2.5 rounded-xl text-white font-bold text-xs flex items-center gap-2 transition-all shadow-md active:scale-95 duration-200 border ${
+                saveStatus === 'saved'
+                  ? 'bg-emerald-600 hover:bg-emerald-500 border-emerald-550'
+                  : saveStatus === 'error'
+                  ? 'bg-rose-900/80 hover:bg-rose-800/80 border-rose-800'
+                  : 'bg-violet-600/90 hover:bg-violet-650 border-violet-500/30 hover:shadow-violet-600/20'
+              }`}
+              id="save-to-profile-action-btn"
+            >
+              <Save className={`w-4 h-4 ${saveStatus === 'saving' ? 'animate-spin' : ''}`} />
+              <span>
+                {lang === 'ar' ? (
+                  saveStatus === 'saving' ? 'جاري الحفظ...' :
+                  saveStatus === 'saved' ? 'تم الحفظ في حسابك! ✨' :
+                  saveStatus === 'error' ? 'يرجى تسجيل الدخول أولاً' :
+                  'حفظ في الملف الشخصي'
+                ) : (
+                  saveStatus === 'saving' ? 'Saving...' :
+                  saveStatus === 'saved' ? 'Saved to Profile! ✨' :
+                  saveStatus === 'error' ? 'Please log in first' :
+                  'Save to Profile'
+                )}
+              </span>
+            </button>
+          )}
         </div>
       </div>
 

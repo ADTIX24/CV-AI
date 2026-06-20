@@ -5,7 +5,7 @@
 
 export const translations = {
   ar: {
-    appTitle: "سيفيه بالذكاء الاصطناعي",
+    appTitle: "سيرة ذاتية بالذكاء الاصطناعي",
     startNow: "ابدأ الآن",
     login: "تسجيل الدخول",
     adminDashboard: "لوحة تحكم المدير",
