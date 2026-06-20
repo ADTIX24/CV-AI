@@ -31,11 +31,15 @@ export function WizardChat({ t, lang, profile, onUpdateProfile, onComplete }: Pr
   });
 
   React.useEffect(() => {
-    localStorage.setItem('cv_ai_wizard_step', currentStep.toString());
+    try {
+      localStorage.setItem('cv_ai_wizard_step', currentStep.toString());
+    } catch (_) {}
   }, [currentStep]);
 
   React.useEffect(() => {
-    localStorage.setItem('cv_ai_wizard_chat', JSON.stringify(chatLog));
+    try {
+      localStorage.setItem('cv_ai_wizard_chat', JSON.stringify(chatLog));
+    } catch (_) {}
   }, [chatLog]);
 
   // Editing active records states

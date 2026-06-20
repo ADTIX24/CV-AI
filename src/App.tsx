@@ -86,7 +86,14 @@ export default function App() {
   });
 
   // Client Session credit and states
-  const [userCredits, setUserCredits] = useState<number>(0);
+  const [userCredits, setUserCredits] = useState<number>(() => {
+    try {
+      const cached = localStorage.getItem('cv_ai_user_credits');
+      return cached ? parseInt(cached, 10) : 0;
+    } catch (_) {
+      return 0;
+    }
+  });
   const [unlockedDownloads, setUnlockedDownloads] = useState<boolean>(false);
 
   // User Authentication / session states
@@ -212,23 +219,43 @@ export default function App() {
 
   // Automatically persist states in real-time to localStorage
   useEffect(() => {
-    localStorage.setItem('cv_ai_lang', lang);
+    try {
+      localStorage.setItem('cv_ai_lang', lang);
+    } catch (e) {
+      console.warn("Storage sync skipped for language:", e);
+    }
   }, [lang]);
-
+ 
   useEffect(() => {
-    localStorage.setItem('cv_ai_brand_config', JSON.stringify(brandConfig));
+    try {
+      localStorage.setItem('cv_ai_brand_config', JSON.stringify(brandConfig));
+    } catch (e) {
+      console.warn("Storage sync skipped for brand config:", e);
+    }
   }, [brandConfig]);
-
+ 
   useEffect(() => {
-    localStorage.setItem('cv_ai_user_credits', userCredits.toString());
+    try {
+      localStorage.setItem('cv_ai_user_credits', userCredits.toString());
+    } catch (e) {
+      console.warn("Storage sync skipped for user credits:", e);
+    }
   }, [userCredits]);
-
+ 
   useEffect(() => {
-    localStorage.setItem('cv_ai_vouchers', JSON.stringify(voucherDb));
+    try {
+      localStorage.setItem('cv_ai_vouchers', JSON.stringify(voucherDb));
+    } catch (e) {
+      console.warn("Storage sync skipped for vouchers database:", e);
+    }
   }, [voucherDb]);
-
+ 
   useEffect(() => {
-    localStorage.setItem('cv_ai_users_fallback', JSON.stringify(usersDb));
+    try {
+      localStorage.setItem('cv_ai_users_fallback', JSON.stringify(usersDb));
+    } catch (e) {
+      console.warn("Storage sync skipped for users fallback:", e);
+    }
   }, [usersDb]);
 
   // Ensure the logged-in user presence exists inside usersDb for flawless fallback management

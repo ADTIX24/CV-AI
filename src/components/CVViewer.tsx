@@ -7,6 +7,8 @@ import React, { useState } from 'react';
 import { Eye, ShieldAlert, FileText, Download, Lock, Check, BookOpen, AlertTriangle } from 'lucide-react';
 import { CVProfile } from '../types';
 import { AppTranslation } from '../translations';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 
 interface Props {
   t: AppTranslation;
@@ -229,6 +231,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
   const [copiedText, setCopiedText] = useState(false);
   const [noCreditsError, setNoCreditsError] = useState(false);
   const [showAllTemplates, setShowAllTemplates] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   // Layout refinement states
   const [cvFontSize, setCvFontSize] = useState<'sm' | 'md' | 'lg' | 'xl' | 'xxl'>('md');
@@ -265,317 +268,90 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     return "'Cairo', 'Inter', sans-serif";
   };
 
-  const downloadAsPDF = () => {
+  const downloadAsPDF = async () => {
     const documentElement = document.getElementById("cv-rendered-document-face");
     if (!documentElement) return;
 
-    // Check if there's already an existing iframe, if so remove it
-    const oldIframe = document.getElementById("cv-print-iframe");
-    if (oldIframe) {
-      oldIframe.parentNode?.removeChild(oldIframe);
-    }
+    setPdfLoading(true);
 
-    const iframe = document.createElement("iframe");
-    iframe.id = "cv-print-iframe";
-    iframe.style.position = "fixed";
-    iframe.style.width = "1024px";
-    iframe.style.height = "1448px";
-    iframe.style.left = "-9999px";
-    iframe.style.top = "-9999px";
-    iframe.style.border = "none";
-    iframe.style.visibility = "hidden";
-    
-    document.body.appendChild(iframe);
-
-    const iframeWindow = iframe.contentWindow;
-    const doc = iframeWindow?.document || iframe.contentDocument;
-    if (!doc) {
-      // Direct print fallback if iframe is completely blocked
-      window.print();
-      return;
-    }
-
-    const htmlContent = documentElement.innerHTML;
-    const fontImports = `
-      @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&family=Amiri:ital,wght@0,400;0,700;1,400&family=Harmattan:wght@400;700&family=Cairo:wght@300;400;600;700;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
-    `;
-
-    const fullPageString = `
-      <!DOCTYPE html>
-      <html lang="${lang}" dir="${lang === 'ar' ? 'rtl' : 'ltr'}">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>${profile.fullName || 'CV_AI'}</title>
-        <script>
-          window.tailwind = {
-            config: {
-              theme: {
-                extend: {
-                  fontFamily: {
-                    sans: ["Cairo", "Inter", "sans-serif"],
-                    serif: ["Amiri", "serif"],
-                    mono: ["JetBrains Mono", "monospace"],
-                    tajawal: ["Tajawal", "sans-serif"],
-                    harmattan: ["Harmattan", "sans-serif"],
-                    cairo: ["Cairo", "sans-serif"],
-                    inter: ["Inter", "sans-serif"],
-                  }
-                }
-              }
-            }
+    try {
+      // 1. Prepare options
+      // scale: 2 ensures high DPI, clear texts, perfectly readable on phone screen and WhatsApp
+      const options = {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        onclone: (clonedDoc: Document) => {
+          // Inside the cloned document, make sure we remove screenshot warnings & edit panels
+          const warning = clonedDoc.getElementById('screenshot-protection-panel');
+          if (warning) {
+            warning.style.display = 'none';
           }
-        </script>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <style>
-          ${fontImports}
-          @page {
-            size: A4 portrait;
-            margin: 0 !important;
-          }
-          body {
-            background-color: #ffffff;
-            padding: 10mm 15mm !important;
-            display: flex;
-            justify-content: center;
-            font-family: ${getMappedFontCSS()};
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          * {
-            font-family: ${getMappedFontCSS()} !important;
-          }
-          [dir="rtl"], :lang(ar) {
-            letter-spacing: 0px !important;
-            word-spacing: 0.05rem !important;
-          }
-
-          /* Force high-fidelity desktop multi-column and layout system inside A4 page */
-          .cv-print-container .grid {
-            display: grid !important;
-          }
-          .cv-print-container .grid-cols-1 {
-            grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
-          }
-          .cv-print-container .md\:grid-cols-12 {
-            grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
-          }
-          .cv-print-container .md\:col-span-12 {
-            grid-column: span 12 / span 12 !important;
-          }
-          .cv-print-container .md\:col-span-9 {
-            grid-column: span 9 / span 9 !important;
-          }
-          .cv-print-container .md\:col-span-8 {
-            grid-column: span 8 / span 8 !important;
-          }
-          .cv-print-container .md\:col-span-7 {
-            grid-column: span 7 / span 7 !important;
-          }
-          .cv-print-container .md\:col-span-5 {
-            grid-column: span 5 / span 5 !important;
-          }
-          .cv-print-container .md\:col-span-4 {
-            grid-column: span 4 / span 4 !important;
-          }
-          .cv-print-container .md\:col-span-3 {
-            grid-column: span 3 / span 3 !important;
-          }
-          .cv-print-container .flex-col {
-            display: flex !important;
-            flex-direction: column !important;
-          }
-          .cv-print-container .md\:flex-row {
-            flex-direction: row !important;
-            display: flex !important;
-          }
-          .cv-print-container .md\:text-left {
-            text-align: left !important;
-          }
-          [dir="rtl"] .cv-print-container .md\:text-left {
-            text-align: right !important;
-          }
-          .cv-print-container .md\:justify-start {
-            justify-content: flex-start !important;
-          }
-          .cv-print-container .justify-center {
-            justify-content: center !important;
-          }
-          .cv-print-container .md\:self-start {
-            align-self: flex-start !important;
-          }
-          .cv-print-container .md\:border-r {
-            border-right-width: 1px !important;
-            border-left-width: 0px !important;
-            border-style: solid !important;
-          }
-          .cv-print-container .md\:border-l {
-            border-left-width: 1px !important;
-            border-right-width: 0px !important;
-            border-style: solid !important;
-          }
-          [dir="rtl"] .cv-print-container .md\:border-r {
-            border-left-width: 1px !important;
-            border-right-width: 0px !important;
-            border-style: solid !important;
-          }
-          [dir="rtl"] .cv-print-container .md\:border-l {
-            border-right-width: 1px !important;
-            border-left-width: 0px !important;
-            border-style: solid !important;
-          }
-          .cv-print-container .md\:order-1 {
-            order: 1 !important;
-          }
-          .cv-print-container .md\:order-2 {
-            order: 2 !important;
-          }
-          .cv-print-container .order-2.md\:order-1 {
-            order: 1 !important;
-          }
-          .cv-print-container .md\:-mx-12 {
-            margin-left: -3rem !important;
-            margin-right: -3rem !important;
-          }
-          .cv-print-container .md\:-mt-12 {
-            margin-top: -3rem !important;
-          }
-          .cv-print-container .md\:p-10 {
-            padding: 2.5rem !important;
-          }
-          .cv-print-container .md\:p-12 {
-            padding: 3rem !important;
-          }
-          .cv-print-container .md\:mt-0 {
-            margin-top: 0px !important;
-          }
-          .cv-print-container .md\:w-28 {
-            width: 7rem !important;
-          }
-          .cv-print-container .md\:h-28 {
-            height: 7rem !important;
-          }
-          .cv-print-container .md\:w-36 {
-            width: 9rem !important;
-          }
-          .cv-print-container .md\:h-36 {
-            height: 9rem !important;
-          }
-          .cv-print-container .md\:w-44 {
-            width: 11rem !important;
-          }
-          .cv-print-container .md\:h-44 {
-            height: 11rem !important;
-          }
-          .cv-print-container .justify-center.md\:justify-start {
-            justify-content: flex-start !important;
-          }
-          .cv-print-container .text-center.md\:text-left {
-            text-align: left !important;
-          }
-          [dir="rtl"] .cv-print-container .text-center.md\:text-left {
-            text-align: right !important;
-          }
-
-          @media print {
-            body {
-              background-color: #ffffff !important;
-              padding: 0 !important;
-              margin: 0 !important;
-              width: 210mm !important;
-              height: 297mm !important;
-              overflow: hidden !important;
-            }
-            .cv-print-container {
-              box-shadow: none !important;
-              border: none !important;
-              border-radius: 0 !important;
-              padding: 10mm 15mm 10mm 15mm !important;
-              margin: 0 !important;
-              max-width: 210mm !important;
-              width: 210mm !important;
-              min-width: 210mm !important;
-              height: 297mm !important;
-              min-height: 297mm !important;
-              max-height: 297mm !important;
-              box-sizing: border-box !important;
-              background-color: #ffffff !important;
-              overflow: hidden !important;
-            }
-            #cv-rendered-document-face {
-              padding: 0 !important;
-              margin: 0 !important;
-              width: 100% !important;
-              height: 100% !important;
-              min-height: 100% !important;
-              max-height: 100% !important;
-              box-shadow: none !important;
-              border: none !important;
-              border-radius: 0 !important;
-              background-color: transparent !important;
-            }
-            .space-y-6 > * + * {
-              margin-top: 0.6rem !important;
-            }
-            .space-y-4 > * + * {
-              margin-top: 0.35rem !important;
-            }
-            .space-y-3 > * + * {
-              margin-top: 0.25rem !important;
-            }
-            .space-y-2 > * + * {
-              margin-top: 0.15rem !important;
-            }
-            p, span, li, h1, h2, h3, h4, div {
-              page-break-inside: avoid !important;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="cv-print-container w-full max-w-[210mm] min-h-[297mm] bg-white">
-          ${htmlContent}
-        </div>
-      </body>
-      </html>
-    `;
-
-    doc.open();
-    doc.write(fullPageString);
-    doc.close();
-
-    // Trigger print once scripts and styles are loaded
-    const triggerPrint = () => {
-      setTimeout(() => {
-        try {
-          iframeWindow?.focus();
-          iframeWindow?.print();
-          // Safe asynchronous garbage collection of the offscreen rendering iframe to save memory
-          setTimeout(() => {
-            const currentIframe = document.getElementById("cv-print-iframe");
-            if (currentIframe) {
-              currentIframe.parentNode?.removeChild(currentIframe);
-            }
-          }, 4500);
-        } catch (e) {
-          console.error("Iframe print error", e);
-          const win = window.open("", "_blank");
-          if (win) {
-            win.document.open();
-            win.document.write(fullPageString);
-            win.document.close();
-          } else {
-            alert(lang === 'ar' ? "يرجى السماح بالنوافذ المنبثقة لحفظ سيرتك الذاتية كـ PDF" : "Please allow popups to save your CV as a PDF.");
+          const element = clonedDoc.getElementById('cv-rendered-document-face');
+          if (element) {
+            // Remove full rounded borders or extra custom shadows for print
+            element.style.boxShadow = 'none';
+            element.style.borderRadius = '0px';
+            element.style.border = 'none';
           }
         }
-      }, 1200);
-    };
+      };
 
-    const cdnScript = doc.querySelector('script[src*="tailwindcss"]') as HTMLScriptElement | null;
-    if (cdnScript) {
-      cdnScript.onload = triggerPrint;
-    } else {
-      triggerPrint();
+      // 2. Generate Canvas
+      const canvas = await html2canvas(documentElement, options);
+      
+      // 3. Setup jsPDF A4 Document dimensions in mm
+      const pdfWidth = 210; // 210mm wide (Standard A4 width)
+      const pdfHeight = 297; // 297mm high (Standard A4 height)
+      
+      // Calculate aspect ratio
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      const pdfRatio = pdfHeight / pdfWidth;
+      const imgRatio = imgHeight / imgWidth;
+      
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      
+      // Let's parse custom pagination
+      if (imgRatio <= pdfRatio + 0.05) {
+        // Fits perfectly inside 1 page
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
+      } else {
+        // Multi-page document
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        
+        // Calculate total printed height in PDF mm based on viewport width
+        const renderedHeightMm = (imgHeight * pdfWidth) / imgWidth;
+        let heightLeftMm = renderedHeightMm;
+        let positionMm = 0;
+        
+        pdf.addImage(imgData, 'JPEG', 0, positionMm, pdfWidth, renderedHeightMm, undefined, 'FAST');
+        heightLeftMm -= pdfHeight;
+        
+        while (heightLeftMm > 0) {
+          positionMm -= pdfHeight;
+          pdf.addPage();
+          pdf.addImage(imgData, 'JPEG', 0, positionMm, pdfWidth, renderedHeightMm, undefined, 'FAST');
+          heightLeftMm -= pdfHeight;
+        }
+      }
+
+      // Save PDF output
+      const sanitizedName = (profile.fullName || 'cv-professional').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
+      pdf.save(`${sanitizedName || 'cv'}.pdf`);
+
+      // Call onDownload callback to trigger credits deduction
+      if (onDownload) {
+        onDownload();
+      }
+    } catch (error) {
+      console.error("PDF generation failed:", error);
+      alert(lang === 'ar' ? 'حدث خطأ أثناء تحميل الـ PDF. يرجى مراجعة الدعم الفني.' : 'Error generating PDF. Please check support.');
+    } finally {
+      setPdfLoading(false);
     }
   };
 
@@ -1255,6 +1031,18 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         onMouseLeave={() => setShowScreenshotWarning(false)}
         id="cv-rendered-document-face"
       >
+        {/* PDF Rendering Premium Loader */}
+        {pdfLoading && (
+          <div className="absolute inset-0 bg-white/90 z-50 flex flex-col items-center justify-center gap-4 cursor-wait font-sans select-none animate-fade-in rounded-2xl">
+            <div className="w-12 h-12 border-4 border-violet-600 border-t-transparent rounded-full animate-spin"></div>
+            <div className="text-zinc-900 font-bold text-base text-center px-4 animate-pulse">
+              {lang === 'ar' 
+                ? '✦ جاري تصدير وتوليد ملف المستند الـ PDF بدقة هاتف عالية... يرجى الانتظار ثانية واحدة !' 
+                : '✦ Capturing high-fidelity mobile-optimized PDF document... Please wait a second!'}
+            </div>
+          </div>
+        )}
+
         {/* Anti-screenshot Watermark Overlays (Locked previews only) */}
         {!unlocked && (
           <div className="absolute inset-0 pointer-events-none select-none z-10 overflow-hidden flex flex-col justify-between p-12 opacity-[0.06]">
