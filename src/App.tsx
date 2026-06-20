@@ -100,6 +100,7 @@ export default function App() {
     return localStorage.getItem('cv_ai_current_user_name') || "";
   });
   const redirectToWorkspaceOnLoginRef = useRef<boolean>(false);
+  const googleAuthLockRef = useRef<boolean>(false);
 
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
   const [showAccountModal, setShowAccountModal] = useState<boolean>(false);
@@ -863,10 +864,18 @@ export default function App() {
     : true;
 
   const triggerGoogleLoginPopup = async () => {
+    if (googleAuthLockRef.current) {
+      console.warn("[Google Auth] Prevented concurrent popup request.");
+      return;
+    }
+    googleAuthLockRef.current = true;
     setAuthLoading(true);
     setLoginError('');
+    
+    const isIframe = typeof window !== 'undefined' && window.self !== window.top;
+    
     try {
-      console.log("[Google Auth] Initializing signInWithPopup standard flow...");
+      console.log("[Google Auth] Initializing signInWithPopup standard flow...", "isIframe:", isIframe);
       const res = await signInWithPopup(auth, googleProvider);
       if (res && res.user) {
         const email = (res.user.email || '').toLowerCase().trim();
@@ -879,11 +888,15 @@ export default function App() {
         setIsLoggedIn(true);
         setShowLoginModal(false);
         setAuthLoading(false);
+        googleAuthLockRef.current = false;
         return;
       }
     } catch (popupErr: any) {
       console.error("[Google Auth] POPUP ERROR:", popupErr);
       let errMsg = '';
+      
+      const iframeTipAr = ' (تنبيه: يرجى الضغط على الزر المضيء بالأسفل وفتح الموقع بصفحة مستقلة لتشغيل حساب Google للأمان، أو تسجيل الدخول فوراً عبر البريد الإلكتروني دون أي قيود).';
+      const iframeTipEn = ' (Tip: Please click the highlighted button below to open the application in a separate tab, or sign in using Email & Password fallback).';
       
       if (popupErr.code === 'auth/popup-blocked') {
         errMsg = lang === 'ar'
@@ -891,20 +904,21 @@ export default function App() {
           : 'The Google login popup was blocked by your browser. Please allow popups for this site and try again.';
       } else if (popupErr.code === 'auth/cancelled-popup-request' || popupErr.code === 'auth/popup-closed-by-user') {
         errMsg = lang === 'ar'
-          ? 'تم إغلاق نافذة تسجيل الدخول من Google.'
-          : 'The Google login popup was closed before completing.';
+          ? 'تم إغلاق أو إلغاء نافذة تسجيل الدخول من Google.' + (isIframe ? iframeTipAr : '')
+          : 'The Google login popup was closed or cancelled before completing.' + (isIframe ? iframeTipEn : '');
       } else if (popupErr.code === 'auth/unauthorized-domain' || (popupErr.message && popupErr.message.includes('unauthorized-domain'))) {
         errMsg = lang === 'ar'
           ? 'عذراً، هذا النطاق غير مصرح به لتسجيل الدخول بـ Google في إعدادات مشروع Firebase. يرجى مراجعة قائمة النطاقات المصرح بها (Authorized Domains).'
           : 'Sorry, this domain is not authorized for Google Sign-In in your Firebase project settings.';
       } else {
         errMsg = lang === 'ar'
-          ? `فشل تسجيل الدخول من Google: ${popupErr.message || String(popupErr)}`
-          : `Google Sign-In failed: ${popupErr.message || String(popupErr)}`;
+          ? `فشل تسجيل الدخول من Google: ${popupErr.message || String(popupErr)}` + (isIframe ? iframeTipAr : '')
+          : `Google Sign-In failed: ${popupErr.message || String(popupErr)}` + (isIframe ? iframeTipEn : '');
       }
       setLoginError(errMsg);
     } finally {
       setAuthLoading(false);
+      googleAuthLockRef.current = false;
     }
   };
 
@@ -1663,16 +1677,29 @@ export default function App() {
                   
                   <div className={`flex gap-2 ${lang === 'ar' ? 'flex-row-reverse justify-start' : 'flex-row justify-end'}`}>
                     {loginError.includes('Google') && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLoginMode('email');
-                          setLoginError('');
-                        }}
-                        className="px-2.5 py-1 rounded bg-zinc-930 hover:bg-zinc-850 text-zinc-350 hover:text-white transition-all cursor-pointer text-[10px] border border-zinc-800"
-                      >
-                        {lang === 'ar' ? 'استخدم البريد الإلكتروني كبديل فوري' : 'Use Email instead'}
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLoginMode('email');
+                            setLoginError('');
+                          }}
+                          className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-800 hover:border-violet-500/30 text-zinc-300 hover:text-white transition-all cursor-pointer text-[10px]"
+                        >
+                          {lang === 'ar' ? 'استخدم البريد الإلكتروني كبديل فوري' : 'Use Email instead'}
+                        </button>
+                        
+                        {typeof window !== 'undefined' && window.self !== window.top && (
+                          <a
+                            href={window.location.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2.5 py-1 rounded bg-violet-600 hover:bg-violet-700 text-white transition-all cursor-pointer text-[10px] inline-flex items-center gap-1 font-bold animate-pulse"
+                          >
+                            <span>{lang === 'ar' ? 'افتح في صفحة مستقلة لتفعيل Google 🌐' : 'Open in separate tab to enable Google 🌐'}</span>
+                          </a>
+                        )}
+                      </>
                     )}
                     <button
                       type="button"
