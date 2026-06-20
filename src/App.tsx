@@ -487,16 +487,18 @@ export default function App() {
         list.push(doc.data() as CVProfile);
       });
       setUserResumes(list);
-
-      // Try auto-loading their last edited profile if the active one is empty
-      if (list.length > 0 && !profile.fullName) {
-        setProfile(list[0]);
-      }
     }, (err: any) => {
       console.warn("Failed to subscribe user resumes collection, continuing in offline cached mode:", err.message || err);
     });
     return () => unsubscribe();
   }, [isLoggedIn, auth.currentUser?.uid]);
+
+  // 3b. Safe autoload of last edited profile if target is empty, preventing stale closures and state override loops
+  useEffect(() => {
+    if (userResumes.length > 0 && !profile.fullName) {
+      setProfile(userResumes[0]);
+    }
+  }, [userResumes, profile.fullName]);
 
   // 4. Complete users list subscription ONLY for verified admin (veira1x1@gmail.com)
   useEffect(() => {
@@ -1134,8 +1136,8 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#030712] text-zinc-100 flex flex-col justify-between font-sans relative overflow-x-hidden selection:bg-violet-500/30 selection:text-white" id="main-application-frame">
       {/* Background Neon Spotlights and Glowing Grid */}
-      <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-gradient-to-br from-violet-600/10 to-fuchsia-500/5 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute top-1/2 right-1/4 w-[400px] h-[400px] bg-gradient-to-br from-blue-600/10 to-cyan-500/5 rounded-full blur-[100px] pointer-events-none" />
+      <div className="hidden md:block absolute top-0 left-1/4 w-[500px] h-[500px] bg-gradient-to-br from-violet-600/10 to-fuchsia-500/5 rounded-full blur-[120px] pointer-events-none" />
+      <div className="hidden md:block absolute top-1/2 right-1/4 w-[400px] h-[400px] bg-gradient-to-br from-blue-600/10 to-cyan-500/5 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute -inset-y-0 inset-x-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.01)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.01)_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none opacity-[0.25]" />
 
       {/* HEADER BAR */}

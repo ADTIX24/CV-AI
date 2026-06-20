@@ -274,84 +274,99 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
 
     setPdfLoading(true);
 
-    try {
-      // 1. Prepare options
-      // scale: 2 ensures high DPI, clear texts, perfectly readable on phone screen and WhatsApp
-      const options = {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        onclone: (clonedDoc: Document) => {
-          // Inside the cloned document, make sure we remove screenshot warnings & edit panels
-          const warning = clonedDoc.getElementById('screenshot-protection-panel');
-          if (warning) {
-            warning.style.display = 'none';
-          }
-          const element = clonedDoc.getElementById('cv-rendered-document-face');
-          if (element) {
-            // Remove full rounded borders or extra custom shadows for print
-            element.style.boxShadow = 'none';
-            element.style.borderRadius = '0px';
-            element.style.border = 'none';
-          }
-        }
-      };
+    // Dynamic scale levels for ultimate fault tolerance in mobile devices (starts at 2, scales down to 1 if browser fails due to memory/CORS)
+    const scaleLevels = [2, 1.5, 1];
+    let success = false;
+    let lastError: any = null;
 
-      // 2. Generate Canvas
-      const canvas = await html2canvas(documentElement, options);
-      
-      // 3. Setup jsPDF A4 Document dimensions in mm
-      const pdfWidth = 210; // 210mm wide (Standard A4 width)
-      const pdfHeight = 297; // 297mm high (Standard A4 height)
-      
-      // Calculate aspect ratio
-      const imgWidth = canvas.width;
-      const imgHeight = canvas.height;
-      const pdfRatio = pdfHeight / pdfWidth;
-      const imgRatio = imgHeight / imgWidth;
-      
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      
-      // Let's parse custom pagination
-      if (imgRatio <= pdfRatio + 0.05) {
-        // Fits perfectly inside 1 page
-        const imgData = canvas.toDataURL('image/jpeg', 0.95);
-        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
-      } else {
-        // Multi-page document
-        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+    for (const scaleVal of scaleLevels) {
+      if (success) break;
+      try {
+        // 1. Prepare options
+        const options = {
+          scale: scaleVal,
+          useCORS: true,
+          allowTaint: false, // DO NOT TAINT canvas, ensures toDataURL never crashes due to cross-origin images
+          backgroundColor: '#ffffff',
+          logging: false,
+          onclone: (clonedDoc: Document) => {
+            // Inside the cloned document, make sure we remove screenshot warnings & edit panels
+            const warning = clonedDoc.getElementById('screenshot-protection-panel');
+            if (warning) {
+              warning.style.setProperty('display', 'none', 'important');
+            }
+            const element = clonedDoc.getElementById('cv-rendered-document-face');
+            if (element) {
+              // Remove full rounded borders or extra custom shadows for print
+              element.style.boxShadow = 'none';
+              element.style.borderRadius = '0px';
+              element.style.border = 'none';
+            }
+          }
+        };
+
+        // 2. Generate Canvas
+        const canvas = await html2canvas(documentElement, options);
         
-        // Calculate total printed height in PDF mm based on viewport width
-        const renderedHeightMm = (imgHeight * pdfWidth) / imgWidth;
-        let heightLeftMm = renderedHeightMm;
-        let positionMm = 0;
+        // 3. Setup jsPDF A4 Document dimensions in mm
+        const pdfWidth = 210; // 210mm wide (Standard A4 width)
+        const pdfHeight = 297; // 297mm high (Standard A4 height)
         
-        pdf.addImage(imgData, 'JPEG', 0, positionMm, pdfWidth, renderedHeightMm, undefined, 'FAST');
-        heightLeftMm -= pdfHeight;
+        // Calculate aspect ratio
+        const imgWidth = canvas.width;
+        const imgHeight = canvas.height;
+        const pdfRatio = pdfHeight / pdfWidth;
+        const imgRatio = imgHeight / imgWidth;
         
-        while (heightLeftMm > 0) {
-          positionMm -= pdfHeight;
-          pdf.addPage();
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        
+        // Let's parse custom pagination
+        if (imgRatio <= pdfRatio + 0.05) {
+          // Fits perfectly inside 1 page
+          const imgData = canvas.toDataURL('image/jpeg', 0.95);
+          pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
+        } else {
+          // Multi-page document
+          const imgData = canvas.toDataURL('image/jpeg', 0.95);
+          
+          // Calculate total printed height in PDF mm based on viewport width
+          const renderedHeightMm = (imgHeight * pdfWidth) / imgWidth;
+          let heightLeftMm = renderedHeightMm;
+          let positionMm = 0;
+          
           pdf.addImage(imgData, 'JPEG', 0, positionMm, pdfWidth, renderedHeightMm, undefined, 'FAST');
           heightLeftMm -= pdfHeight;
+          
+          while (heightLeftMm > 0) {
+            positionMm -= pdfHeight;
+            pdf.addPage();
+            pdf.addImage(imgData, 'JPEG', 0, positionMm, pdfWidth, renderedHeightMm, undefined, 'FAST');
+            heightLeftMm -= pdfHeight;
+          }
         }
-      }
 
-      // Save PDF output
-      const sanitizedName = (profile.fullName || 'cv-professional').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
-      pdf.save(`${sanitizedName || 'cv'}.pdf`);
+        // Save PDF output
+        const sanitizedName = (profile.fullName || 'cv-professional').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
+        pdf.save(`${sanitizedName || 'cv'}.pdf`);
 
-      // Call onDownload callback to trigger credits deduction
-      if (onDownload) {
-        onDownload();
+        // Call onDownload callback to trigger credits deduction
+        if (onDownload) {
+          onDownload();
+        }
+        success = true;
+        console.log(`PDF successfully generated with scale level: ${scaleVal}`);
+        break;
+      } catch (error) {
+        console.warn(`PDF compilation with scale:${scaleVal} failed, attempting next scale value...`, error);
+        lastError = error;
       }
-    } catch (error) {
-      console.error("PDF generation failed:", error);
-      alert(lang === 'ar' ? 'حدث خطأ أثناء تحميل الـ PDF. يرجى مراجعة الدعم الفني.' : 'Error generating PDF. Please check support.');
-    } finally {
-      setPdfLoading(false);
+    }
+
+    setPdfLoading(false);
+
+    if (!success) {
+      console.error("All PDF generation level options failed:", lastError);
+      alert(lang === 'ar' ? 'حدث خطأ غير متوقع أثناء تحميل ملف الـ PDF. يرجى تجربة متصفح آخر أو مراجعة الدعم الفني.' : 'Unexpected error during PDF generation. Please try another browser or contact support.');
     }
   };
 
@@ -1026,9 +1041,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
 
       {/* CV Interactive Stage */}
       <div 
-        className={`relative ${config.paperBg} text-zinc-900 duration-500 transition-colors p-8 md:p-12 shadow-2xl rounded-2xl mx-auto w-full max-w-[210mm] min-h-[297mm] overflow-visible cursor-crosshair select-text`}
-        onMouseEnter={() => !unlocked && setShowScreenshotWarning(true)}
-        onMouseLeave={() => setShowScreenshotWarning(false)}
+        className={`group relative ${config.paperBg} text-zinc-900 duration-500 transition-colors p-8 md:p-12 shadow-2xl rounded-2xl mx-auto w-full max-w-[210mm] min-h-[297mm] overflow-visible cursor-crosshair select-text`}
         id="cv-rendered-document-face"
       >
         {/* PDF Rendering Premium Loader */}
@@ -1058,10 +1071,10 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
           </div>
         )}
 
-        {/* Active anti-copy screen grab floating notice */}
-        {showScreenshotWarning && !unlocked && (
+        {/* Active anti-copy screen grab floating notice - Pure CSS Hardware Accelerated Group Hover state */}
+        {!unlocked && (
           <div 
-            className="absolute top-4 left-4 right-4 bg-zinc-900/95 text-zinc-100 p-3 rounded-xl shadow-2xl z-20 flex items-center gap-3 border border-zinc-800 animate-slide-in justify-between font-sans"
+            className="absolute top-4 left-4 right-4 bg-zinc-900/95 text-zinc-100 p-3 rounded-xl shadow-2xl z-20 flex items-center gap-3 border border-zinc-800 transition-all duration-300 transform -translate-y-2 opacity-0 group-hover:opacity-100 group-hover:translate-y-0 pointer-events-none select-none justify-between font-sans"
             id="screenshot-protection-panel"
           >
             <div className="flex items-center gap-2">
