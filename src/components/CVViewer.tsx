@@ -288,26 +288,160 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     return "'Cairo', 'Inter', sans-serif";
   };
 
+  const fetchAsDataURL = async (url: string): Promise<string> => {
+    if (!url) return '';
+    if (url.startsWith('data:')) return url;
+    try {
+      const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+      if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+      const blob = await res.blob();
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error("FileReader failed"));
+        reader.readAsDataURL(blob);
+      });
+    } catch (err) {
+      console.warn(`Failed fetchAsDataURL for ${url}, trying canvas fallback:`, err);
+      return new Promise<string>((resolve) => {
+        const img = new window.Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth || img.width;
+            canvas.height = img.naturalHeight || img.height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0);
+              resolve(canvas.toDataURL('image/png'));
+              return;
+            }
+          } catch (e) {
+            console.error("Canvas conversion fallback failed:", e);
+          }
+          resolve(url);
+        };
+        img.onerror = () => {
+          resolve(url);
+        };
+        img.src = url;
+      });
+    }
+  };
+
+  const handleFileDelivery = async (blob: Blob, filename: string, mimeType: string): Promise<boolean> => {
+    try {
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      if (isMobile && navigator.share && navigator.canShare) {
+        const file = new File([blob], filename, { type: mimeType });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: filename,
+            text: lang === 'ar' ? 'سيرتك الذاتية من المستشار الذكي' : 'Your Professional Resume',
+          });
+          return true;
+        }
+      }
+    } catch (shareErr) {
+      console.warn("Navigator share was bypassed or cancelled:", shareErr);
+    }
+
+    try {
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+
+      const isIOSChrome = navigator.userAgent.match('CriOS');
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS || isIOSChrome) {
+        window.open(blobUrl, '_blank');
+        return true;
+      }
+
+      document.body.appendChild(link);
+      link.click();
+
+      setTimeout(() => {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(blobUrl);
+      }, 300);
+      return true;
+    } catch (err) {
+      console.error("File delivery fallback failed:", err);
+      return false;
+    }
+  };
+
   const generateHighQualityCanvas = async (scaleVal: number): Promise<HTMLCanvasElement> => {
     const documentElement = document.getElementById("cv-rendered-document-face");
     if (!documentElement) throw new Error("Document face element not found");
 
+    const base64Cache: Record<string, string> = {};
+    const imgPromises: Promise<any>[] = [];
+
+    if (profile.enhancedPhotoUrl) {
+      imgPromises.push(
+        fetchAsDataURL(profile.enhancedPhotoUrl).then(b64 => {
+          if (b64 && b64.startsWith('data:')) base64Cache['enhanced'] = b64;
+        })
+      );
+    }
+    if (profile.photoUrl) {
+      imgPromises.push(
+        fetchAsDataURL(profile.photoUrl).then(b64 => {
+          if (b64 && b64.startsWith('data:')) base64Cache['photo'] = b64;
+        })
+      );
+    }
+    if (profile.logoUrl) {
+      imgPromises.push(
+        fetchAsDataURL(profile.logoUrl).then(b64 => {
+          if (b64 && b64.startsWith('data:')) base64Cache['logo'] = b64;
+        })
+      );
+    }
+
+    try {
+      await Promise.all(imgPromises);
+    } catch (e) {
+      console.warn("Some images could not be pre-resolved", e);
+    }
+
     const options = {
       scale: scaleVal,
       useCORS: true,
-      allowTaint: false, // Ensures toDataURL never crashes due to cross-origin images
+      allowTaint: false,
       backgroundColor: '#ffffff',
       logging: false,
-      windowWidth: 1024, // Forces desktop viewport simulation
+      windowWidth: 1024,
       onclone: (clonedDoc: Document) => {
-        // Hide screenshot warnings
         const warning = clonedDoc.getElementById('screenshot-protection-panel');
         if (warning) {
           warning.style.setProperty('display', 'none', 'important');
         }
+
+        const clonedFace = clonedDoc.getElementById('cv-rendered-document-face');
+        if (clonedFace) {
+          const imgs = clonedFace.getElementsByTagName('img');
+          for (let i = 0; i < imgs.length; i++) {
+            const img = imgs[i];
+            const originalSrc = img.getAttribute('src') || '';
+            
+            if (profile.enhancedPhotoUrl && originalSrc.includes(profile.enhancedPhotoUrl) && base64Cache['enhanced']) {
+              img.src = base64Cache['enhanced'];
+            } else if (profile.photoUrl && originalSrc.includes(profile.photoUrl) && base64Cache['photo']) {
+              img.src = base64Cache['photo'];
+            } else if (profile.logoUrl && originalSrc.includes(profile.logoUrl) && base64Cache['logo']) {
+              img.src = base64Cache['logo'];
+            }
+          }
+        }
+
         const element = clonedDoc.getElementById('cv-rendered-document-face');
         if (element) {
-          // Lock A4 dimensions to guarantee perfect layout and prevent squishing/mobile collapse
           element.style.setProperty('width', '210mm', 'important');
           element.style.setProperty('min-width', '210mm', 'important');
           element.style.setProperty('max-width', '210mm', 'important');
@@ -315,13 +449,11 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
           element.style.setProperty('border-radius', '0px', 'important');
           element.style.setProperty('border', 'none', 'important');
 
-          // Force all elements inside the cloned tree to apply desktop/md: rules to bypass mobile screen media query limits:
           const allColl = element.querySelectorAll('*');
           allColl.forEach((item) => {
             const htmlItem = item as HTMLElement;
             const classes = htmlItem.className || '';
 
-            // 1. Force Grid Columns
             if (classes.includes('md:grid-cols-12')) {
               htmlItem.style.setProperty('display', 'grid', 'important');
               htmlItem.style.setProperty('grid-template-columns', 'repeat(12, minmax(0, 1fr))', 'important');
@@ -330,26 +462,22 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
               htmlItem.style.setProperty('grid-template-columns', 'repeat(1, minmax(0, 1fr))', 'important');
             }
 
-            // 2. Force Grid Col Spans
             const colSpanMatch = classes.match(/md:col-span-(\d+)/);
             if (colSpanMatch && colSpanMatch[1]) {
               htmlItem.style.setProperty('grid-column', `span ${colSpanMatch[1]} / span ${colSpanMatch[1]}`, 'important');
             }
 
-            // 3. Force Flex Directions
             if (classes.includes('md:flex-row')) {
               htmlItem.style.setProperty('flex-direction', 'row', 'important');
               htmlItem.style.setProperty('display', 'flex', 'important');
             }
 
-            // 4. Force Text Alignment
             if (classes.includes('md:text-left')) {
               htmlItem.style.setProperty('text-align', 'left', 'important');
             } else if (classes.includes('md:text-right')) {
               htmlItem.style.setProperty('text-align', 'right', 'important');
             }
 
-            // 5. Force Justify and Align items
             if (classes.includes('md:justify-start')) {
               htmlItem.style.setProperty('justify-content', 'flex-start', 'important');
             } else if (classes.includes('md:justify-end')) {
@@ -358,7 +486,6 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
               htmlItem.style.setProperty('justify-content', 'space-between', 'important');
             }
 
-            // 6. Force Borders & Display Padding adjustments
             if (classes.includes('md:border-r')) {
               htmlItem.style.setProperty('border-right-width', '1px', 'important');
             }
@@ -387,12 +514,9 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       if (success) break;
       try {
         const canvas = await generateHighQualityCanvas(scaleVal);
+        const pdfWidth = 210;
+        const pdfHeight = 297;
         
-        // Setup jsPDF A4 Document dimensions in mm
-        const pdfWidth = 210; // 210mm wide (Standard A4 width)
-        const pdfHeight = 297; // 297mm high (Standard A4 height)
-        
-        // Calculate aspect ratio
         const imgWidth = canvas.width;
         const imgHeight = canvas.height;
         const pdfRatio = pdfHeight / pdfWidth;
@@ -401,11 +525,9 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         const pdf = new jsPDF('p', 'mm', 'a4');
         
         if (imgRatio <= pdfRatio + 0.05) {
-          // Fits inside 1 page
           const imgData = canvas.toDataURL('image/jpeg', 0.95);
           pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
         } else {
-          // Multi-page document
           const imgData = canvas.toDataURL('image/jpeg', 0.95);
           const renderedHeightMm = (imgHeight * pdfWidth) / imgWidth;
           let heightLeftMm = renderedHeightMm;
@@ -422,13 +544,21 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
           }
         }
 
-        // Save PDF output with sanitized name
         const sanitizedName = (profile.fullName || 'cv-professional').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
-        pdf.save(`${sanitizedName || 'cv'}.pdf`);
+        const filename = `${sanitizedName || 'cv'}.pdf`;
 
-        success = true;
-        console.log(`PDF successfully generated with scale level: ${scaleVal}`);
-        break;
+        const pdfBlob = pdf.output('blob');
+        const delivered = await handleFileDelivery(pdfBlob, filename, 'application/pdf');
+
+        if (delivered) {
+          success = true;
+          console.log(`PDF successfully generated with scale level: ${scaleVal}`);
+          break;
+        } else {
+          pdf.save(filename);
+          success = true;
+          break;
+        }
       } catch (error) {
         console.warn(`PDF compilation with scale:${scaleVal} failed, attempting next scale value...`, error);
         lastError = error;
@@ -455,23 +585,31 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       try {
         const canvas = await generateHighQualityCanvas(scaleVal);
         
-        // Export to lossless PNG format for ultimate font clarity
-        const imgData = canvas.toDataURL('image/png');
-        
-        // Download via virtual link anchor
         const sanitizedName = (profile.fullName || 'cv-professional').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
         const filename = `${sanitizedName || 'cv'}.png`;
 
-        const link = document.createElement('a');
-        link.href = imgData;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        success = true;
-        console.log(`Image successfully generated with scale level: ${scaleVal}`);
-        break;
+        const imageBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+        if (!imageBlob) {
+          throw new Error("Unable to export canvas blob");
+        }
+
+        const delivered = await handleFileDelivery(imageBlob, filename, 'image/png');
+
+        if (delivered) {
+          success = true;
+          console.log(`Image successfully generated with scale level: ${scaleVal}`);
+          break;
+        } else {
+          const imgData = canvas.toDataURL('image/png');
+          const link = document.createElement('a');
+          link.href = imgData;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          success = true;
+          break;
+        }
       } catch (error) {
         console.warn(`Image compilation with scale:${scaleVal} failed, attempting next scale value...`, error);
         lastError = error;
