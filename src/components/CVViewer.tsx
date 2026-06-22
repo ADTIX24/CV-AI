@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { Eye, ShieldAlert, FileText, Download, Lock, Check, BookOpen, AlertTriangle, Image, Save } from 'lucide-react';
+import { Eye, ShieldAlert, FileText, Download, Lock, Check, BookOpen, AlertTriangle, Image, Save, CheckCircle } from 'lucide-react';
 import { CVProfile } from '../types';
 import { AppTranslation } from '../translations';
 import { jsPDF } from 'jspdf';
@@ -234,6 +234,8 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
   const [showAllTemplates, setShowAllTemplates] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [compiledImage, setCompiledImage] = useState<string | null>(null);
+  const [showDownloadHelper, setShowDownloadHelper] = useState<boolean>(false);
 
   const handleSaveClick = async () => {
     if (!onSaveProfile) return;
@@ -389,6 +391,13 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         })
       );
     }
+    if (profile.enhancedPhotoNoWatermarkUrl) {
+      imgPromises.push(
+        fetchAsDataURL(profile.enhancedPhotoNoWatermarkUrl).then(b64 => {
+          if (b64 && b64.startsWith('data:')) base64Cache['enhancedNoWatermark'] = b64;
+        })
+      );
+    }
     if (profile.photoUrl) {
       imgPromises.push(
         fetchAsDataURL(profile.photoUrl).then(b64 => {
@@ -430,7 +439,9 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
             const img = imgs[i];
             const originalSrc = img.getAttribute('src') || '';
             
-            if (profile.enhancedPhotoUrl && originalSrc.includes(profile.enhancedPhotoUrl) && base64Cache['enhanced']) {
+            if (profile.enhancedPhotoNoWatermarkUrl && originalSrc.includes(profile.enhancedPhotoNoWatermarkUrl) && base64Cache['enhancedNoWatermark']) {
+              img.src = base64Cache['enhancedNoWatermark'];
+            } else if (profile.enhancedPhotoUrl && originalSrc.includes(profile.enhancedPhotoUrl) && base64Cache['enhanced']) {
               img.src = base64Cache['enhanced'];
             } else if (profile.photoUrl && originalSrc.includes(profile.photoUrl) && base64Cache['photo']) {
               img.src = base64Cache['photo'];
@@ -555,6 +566,14 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
           console.log(`PDF successfully generated with scale level: ${scaleVal}`);
           break;
         } else {
+          // fallback option for PDF on mobile is to show the compiled image modal so they can share/save safely
+          const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+          if (isMobile) {
+            const imgData = canvas.toDataURL('image/png');
+            setCompiledImage(imgData);
+            success = true;
+            break;
+          }
           pdf.save(filename);
           success = true;
           break;
@@ -584,7 +603,16 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       if (success) break;
       try {
         const canvas = await generateHighQualityCanvas(scaleVal);
+        const imgData = canvas.toDataURL('image/png');
         
+        // On mobile/WebView, ALWAYS open the gorgeous preview/modal save overlay for perfect UX
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        if (isMobile) {
+          setCompiledImage(imgData);
+          success = true;
+          break;
+        }
+
         const sanitizedName = (profile.fullName || 'cv-professional').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
         const filename = `${sanitizedName || 'cv'}.png`;
 
@@ -600,7 +628,6 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
           console.log(`Image successfully generated with scale level: ${scaleVal}`);
           break;
         } else {
-          const imgData = canvas.toDataURL('image/png');
           const link = document.createElement('a');
           link.href = imgData;
           link.download = filename;
@@ -625,11 +652,54 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
   };
 
   // Generate and download fully formatted editable Word Document file (.doc)
-  const downloadAsWord = () => {
+  const downloadAsWord = async () => {
     const documentElement = document.getElementById("cv-rendered-document-face");
     if (!documentElement) return;
 
-    const htmlContent = documentElement.innerHTML;
+    // Create a temporary clone inside a virtual div to sanitize heavy elements
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = documentElement.innerHTML;
+
+    // Remove any huge base64 images (avatars, logos etc.) which crash or corrupt standard MS Word HTML parsers
+    const imgs = tempDiv.getElementsByTagName("img");
+    for (let i = imgs.length - 1; i >= 0; i--) {
+      const img = imgs[i];
+      const src = img.getAttribute("src") || "";
+      if (src.startsWith("data:") || src.length > 500) {
+        const placeholder = document.createElement("div");
+        placeholder.style.border = "1px dashed #dddddd";
+        placeholder.style.padding = "12px";
+        placeholder.style.margin = "10px 0";
+        placeholder.style.textAlign = "center";
+        placeholder.style.fontSize = "10pt";
+        placeholder.style.color = "#666666";
+        placeholder.style.backgroundColor = "#fafafa";
+        placeholder.style.borderRadius = "6px";
+        placeholder.style.fontWeight = "bold";
+        
+        const className = img.className || "";
+        const alt = img.getAttribute("alt") || "";
+        const isLogo = className.includes("Logo") || alt.includes("Logo");
+        
+        if (isLogo) {
+          placeholder.innerText = lang === 'ar' 
+            ? '📍 [شعار الشركة - متوفر في النسخة الرقمية وصيغتي PDF/PNG]' 
+            : '📍 [Company Logo Place - Available in PDF/PNG and Online versions]';
+        } else {
+          placeholder.innerText = lang === 'ar' 
+            ? '👤 [صورة الملف الشخصي - متوفرة في صيغتي PDF/PNG والنسخة الرقمية]' 
+            : '👤 [Profile Photo - Available in PDF/PNG and Online versions]';
+        }
+        
+        img.parentNode?.replaceChild(placeholder, img);
+      }
+    }
+
+    // Clean remaining loader and overlay elements
+    const loaderElements = tempDiv.querySelectorAll(".animate-pulse, .animate-spin, .absolute.inset-0");
+    loaderElements.forEach(el => el.parentNode?.removeChild(el));
+
+    const htmlContent = tempDiv.innerHTML;
     const rawWordContent = `
       <html xmlns:o='urn:schemas-microsoft-com:office:office' 
             xmlns:w='urn:schemas-microsoft-com:office:word' 
@@ -659,15 +729,21 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       </html>
     `;
 
-    const blob = new Blob([rawWordContent], { type: 'application/msword;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${profile.fullName || 'Resume'}_CV.doc`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    // Modern MS Word parses UTF-8 HTML with a Byte-Order Mark (BOM) \uFEFF to load correctly on all Office versions
+    const docBlob = new Blob(['\ufeff' + rawWordContent], { type: 'application/msword;charset=utf-8' });
+    const filename = `${profile.fullName || 'Resume'}_CV.doc`;
+
+    const delivered = await handleFileDelivery(docBlob, filename, 'application/msword');
+    if (!delivered) {
+      const url = URL.createObjectURL(docBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
   };
 
   // Trigger actual file compilation & downloads delivery
@@ -1667,6 +1743,85 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MOBILE WEBVIEW DOWNLOAD HELPER MODAL */}
+      {compiledImage && (
+        <div className="fixed inset-0 bg-black/92 backdrop-blur-md z-50 flex flex-col items-center justify-center p-4 overflow-y-auto animate-fade-in font-sans">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-6 max-w-lg w-full relative shadow-2xl flex flex-col gap-4 text-center">
+            
+            <button 
+              onClick={() => {
+                setCompiledImage(null);
+                setShowDownloadHelper(false);
+              }}
+              className="absolute top-4 right-4 w-10 h-10 rounded-full bg-zinc-900 border border-zinc-800 hover:bg-zinc-850 text-zinc-350 hover:text-white transition-all flex items-center justify-center text-sm font-bold"
+            >
+              ✕
+            </button>
+
+            <div className="space-y-2 mt-4 text-center">
+              <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center justify-center mx-auto">
+                <CheckCircle className="w-8 h-8 text-emerald-400" />
+              </div>
+              <h3 className="text-lg font-black text-white">
+                {lang === 'ar' ? 'تم تجهيز السيرة الذاتية بنجاح! 🚀' : 'CV Generated Successfully! 🚀'}
+              </h3>
+              <p className="text-xs text-zinc-400 max-w-sm mx-auto leading-relaxed">
+                {lang === 'ar' 
+                  ? 'سيرتك الذاتية متوفرة الآن بجودة فائقة وجاهزة لحفظها على جهازك.' 
+                  : 'Your professional resume has been successfully rendered in high resolution.'}
+              </p>
+            </div>
+
+            {/* If Mobile/WebView: show highly distinctive helper instructions */}
+            <div className="bg-zinc-900/60 border border-zinc-850 p-4 rounded-2xl text-right space-y-2 dir-rtl">
+              <span className="text-[10px] font-bold text-violet-400 uppercase tracking-wider block">🗣️ {lang === 'ar' ? 'توضيح هام لمستخدمي الجوال والشبكات:' : 'CRITICAL NOTE FOR MOBILE USERS:'}</span>
+              <p className="text-xs text-zinc-300 leading-relaxed">
+                {lang === 'ar' 
+                  ? 'لتجاوز قيود المتصفحات المدمجة (مثل واتساب، انستجرام، سناب شات، تيك توك): يرجى الضغط مطولاً وبأصبعك على صورة السيرة الذاتية بالأسفل ثم اختر "حفظ الصورة" أو "مشاركة" ليتم تخزينها في ألبوم هاتفك مباشرة وبجودة عالية جداً!' 
+                  : 'To bypass inside-app browser limits (WhatsApp, Instagram, Snapchat, TikTok): please long-press on the image below and select "Save Image" or "Share" to store it directly in your photo gallery with ultra-high clarity!'}
+              </p>
+            </div>
+
+            {/* High-res Image Preview */}
+            <div className="border border-zinc-800 rounded-2xl p-2 bg-zinc-900/40 relative overflow-hidden group">
+              <span className="absolute top-2 right-2 bg-black/85 text-emerald-400 text-[9px] px-2.5 py-1 rounded-full font-mono font-bold animate-pulse">
+                {lang === 'ar' ? 'اضغط هنا مطولاً للحفظ 📱' : 'Long-press here to save 📱'}
+              </span>
+              <img 
+                src={compiledImage} 
+                alt="Your Generated CV" 
+                className="max-h-[50vh] object-contain rounded-xl mx-auto shadow-lg border border-zinc-850 select-all"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  const link = document.createElement('a');
+                  link.href = compiledImage;
+                  link.download = `${(profile.fullName || 'cv-professional').trim()}_CV.png`;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }}
+                className="flex-1 py-3 bg-violet-600 hover:bg-violet-500 active:scale-95 text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer"
+              >
+                {lang === 'ar' ? 'تحميل كملف صورة' : 'Save as Image File'}
+              </button>
+              <button
+                onClick={() => {
+                  setCompiledImage(null);
+                }}
+                className="px-4 py-3 bg-zinc-900 hover:bg-zinc-850 active:scale-95 text-zinc-300 text-xs font-bold rounded-xl transition-all border border-zinc-800 cursor-pointer"
+              >
+                {lang === 'ar' ? 'إغلاق المعاينة' : 'Close'}
+              </button>
+            </div>
+
           </div>
         </div>
       )}
