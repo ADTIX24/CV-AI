@@ -228,6 +228,41 @@ const TEMPLATE_CONFIGS: Record<string, TemplateConfig> = {
 };
 
 export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onInitiateUnlock, credits, onDownload, onSaveProfile }: Props) {
+  const stageRef = React.useRef<HTMLDivElement>(null);
+  const [stageScale, setStageScale] = React.useState<number>(1);
+
+  React.useEffect(() => {
+    const parent = stageRef.current;
+    if (!parent) return;
+
+    const handleResize = () => {
+      const parentWidth = parent.getBoundingClientRect().width;
+      // Lock to standard 794px scale, never expand over 100% (1) on huge screens
+      const scale = parentWidth < 794 ? parentWidth / 794 : 1;
+      setStageScale(scale);
+    };
+
+    handleResize();
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        handleResize();
+      });
+      resizeObserver.observe(parent);
+    } else {
+      window.addEventListener('resize', handleResize);
+    }
+
+    return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      } else {
+        window.removeEventListener('resize', handleResize);
+      }
+    };
+  }, []);
+
   const [showScreenshotWarning, setShowScreenshotWarning] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
   const [noCreditsError, setNoCreditsError] = useState(false);
@@ -453,9 +488,12 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
 
         const element = clonedDoc.getElementById('cv-rendered-document-face');
         if (element) {
-          element.style.setProperty('width', '210mm', 'important');
-          element.style.setProperty('min-width', '210mm', 'important');
-          element.style.setProperty('max-width', '210mm', 'important');
+          element.style.setProperty('width', '794px', 'important');
+          element.style.setProperty('min-width', '794px', 'important');
+          element.style.setProperty('max-width', '794px', 'important');
+          element.style.setProperty('height', '1123px', 'important');
+          element.style.setProperty('min-height', '1123px', 'important');
+          element.style.setProperty('max-height', '1123px', 'important');
           element.style.setProperty('box-shadow', 'none', 'important');
           element.style.setProperty('border-radius', '0px', 'important');
           element.style.setProperty('border', 'none', 'important');
@@ -464,47 +502,181 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
           allColl.forEach((item) => {
             const htmlItem = item as HTMLElement;
             const classes = htmlItem.className || '';
+            if (!classes) return;
 
-            if (classes.includes('md:grid-cols-12')) {
+            // Handle display overrides first: e.g. "hidden md:block", "hidden md:flex", "block md:hidden"
+            if (classes.includes('hidden') && (classes.includes('md:block') || classes.includes('md:flex') || classes.includes('md:grid'))) {
+              if (classes.includes('md:flex')) {
+                htmlItem.style.setProperty('display', 'flex', 'important');
+              } else if (classes.includes('md:grid')) {
+                htmlItem.style.setProperty('display', 'grid', 'important');
+              } else {
+                htmlItem.style.setProperty('display', 'block', 'important');
+              }
+            }
+            if ((classes.includes('block') || classes.includes('flex') || classes.includes('grid')) && classes.includes('md:hidden')) {
+              htmlItem.style.setProperty('display', 'none', 'important');
+            }
+
+            // Handle order overrides: e.g. md:order-1, md:order-2, md:order-first, md:order-last
+            const orderMatch = classes.match(/md:order-(\d+|first|last)/);
+            if (orderMatch && orderMatch[1]) {
+              const val = orderMatch[1];
+              let orderStyle = val;
+              if (val === 'first') orderStyle = '-9999';
+              if (val === 'last') orderStyle = '9999';
+              htmlItem.style.setProperty('order', orderStyle, 'important');
+            }
+
+            // Handle grid column template template: e.g. md:grid-cols-12
+            const gridColsMatch = classes.match(/md:grid-cols-(\d+)/);
+            if (gridColsMatch && gridColsMatch[1]) {
               htmlItem.style.setProperty('display', 'grid', 'important');
-              htmlItem.style.setProperty('grid-template-columns', 'repeat(12, minmax(0, 1fr))', 'important');
-            }
-            if (classes.includes('md:grid-cols-1')) {
-              htmlItem.style.setProperty('grid-template-columns', 'repeat(1, minmax(0, 1fr))', 'important');
+              htmlItem.style.setProperty('grid-template-columns', `repeat(${gridColsMatch[1]}, minmax(0, 1fr))`, 'important');
             }
 
+            // Handle grid column span: e.g. md:col-span-8
             const colSpanMatch = classes.match(/md:col-span-(\d+)/);
             if (colSpanMatch && colSpanMatch[1]) {
               htmlItem.style.setProperty('grid-column', `span ${colSpanMatch[1]} / span ${colSpanMatch[1]}`, 'important');
             }
 
-            if (classes.includes('md:flex-row')) {
-              htmlItem.style.setProperty('flex-direction', 'row', 'important');
-              htmlItem.style.setProperty('display', 'flex', 'important');
+            // Handle position relative/absolute: e.g. md:relative, md:absolute
+            if (classes.includes('md:absolute')) {
+              htmlItem.style.setProperty('position', 'absolute', 'important');
+            } else if (classes.includes('md:relative')) {
+              htmlItem.style.setProperty('position', 'relative', 'important');
             }
 
+            // Handle flex directions: e.g. md:flex-row, md:flex-col
+            if (classes.includes('md:flex-row')) {
+              htmlItem.style.setProperty('display', 'flex', 'important');
+              htmlItem.style.setProperty('flex-direction', 'row', 'important');
+            } else if (classes.includes('md:flex-col')) {
+              htmlItem.style.setProperty('display', 'flex', 'important');
+              htmlItem.style.setProperty('flex-direction', 'column', 'important');
+            }
+
+            // Handle text alignments
             if (classes.includes('md:text-left')) {
               htmlItem.style.setProperty('text-align', 'left', 'important');
             } else if (classes.includes('md:text-right')) {
               htmlItem.style.setProperty('text-align', 'right', 'important');
+            } else if (classes.includes('md:text-center')) {
+              htmlItem.style.setProperty('text-align', 'center', 'important');
+            } else if (classes.includes('md:text-justify')) {
+              htmlItem.style.setProperty('text-align', 'justify', 'important');
             }
 
-            if (classes.includes('md:justify-start')) {
-              htmlItem.style.setProperty('justify-content', 'flex-start', 'important');
-            } else if (classes.includes('md:justify-end')) {
-              htmlItem.style.setProperty('justify-content', 'flex-end', 'important');
-            } else if (classes.includes('md:justify-between')) {
-              htmlItem.style.setProperty('justify-content', 'space-between', 'important');
+            // Handle alignment and justification: md:justify-..., md:items-...
+            const justifyMatch = classes.match(/md:justify-(start|end|center|between|around|evenly)/);
+            if (justifyMatch && justifyMatch[1]) {
+              let val = justifyMatch[1];
+              if (val === 'start') val = 'flex-start';
+              if (val === 'end') val = 'flex-end';
+              if (val === 'between') val = 'space-between';
+              if (val === 'around') val = 'space-around';
+              if (val === 'evenly') val = 'space-evenly';
+              htmlItem.style.setProperty('justify-content', val, 'important');
+            }
+            const itemsMatch = classes.match(/md:items-(start|end|center|baseline|stretch)/);
+            if (itemsMatch && itemsMatch[1]) {
+              let val = itemsMatch[1];
+              if (val === 'start') val = 'flex-start';
+              if (val === 'end') val = 'flex-end';
+              htmlItem.style.setProperty('align-items', val, 'important');
             }
 
+            // Handle spacing (padding, margin, gaps)
+            // md:gap-x-X, md:gap-y-X, md:gap-X
+            const gapMatch = classes.match(/md:gap-(\d+)/);
+            if (gapMatch && gapMatch[1]) {
+              htmlItem.style.setProperty('gap', `${parseFloat(gapMatch[1]) * 0.25}rem`, 'important');
+            }
+            const gapXMatch = classes.match(/md:gap-x-(\d+)/);
+            if (gapXMatch && gapXMatch[1]) {
+              htmlItem.style.setProperty('column-gap', `${parseFloat(gapXMatch[1]) * 0.25}rem`, 'important');
+            }
+            const gapYMatch = classes.match(/md:gap-y-(\d+)/);
+            if (gapYMatch && gapYMatch[1]) {
+              htmlItem.style.setProperty('row-gap', `${parseFloat(gapYMatch[1]) * 0.25}rem`, 'important');
+            }
+
+            // Padding maps: md:p-X, md:px-X, md:py-X etc.
+            const paddingMap: Record<string, string> = {
+              'md:p-': 'padding',
+              'md:px-': 'padding-left,padding-right',
+              'md:py-': 'padding-top,padding-bottom',
+              'md:pt-': 'padding-top',
+              'md:pb-': 'padding-bottom',
+              'md:pl-': 'padding-left',
+              'md:pr-': 'padding-right'
+            };
+            Object.entries(paddingMap).forEach(([prefix, cssProps]) => {
+              const regex = new RegExp(`${prefix}(\\d+(\\.\\d+)?)`);
+              const match = classes.match(regex);
+              if (match && match[1]) {
+                const remVal = `${parseFloat(match[1]) * 0.25}rem`;
+                cssProps.split(',').forEach(prop => {
+                  htmlItem.style.setProperty(prop, remVal, 'important');
+                });
+              }
+            });
+
+            // Margin maps: md:m-X, md:mx-X, md:my-X etc.
+            const marginMap: Record<string, string> = {
+              'md:m-': 'margin',
+              'md:mx-': 'margin-left,margin-right',
+              'md:my-': 'margin-top,margin-bottom',
+              'md:mt-': 'margin-top',
+              'md:mb-': 'margin-bottom',
+              'md:ml-': 'margin-left',
+              'md:mr-': 'margin-right'
+            };
+            Object.entries(marginMap).forEach(([prefix, cssProps]) => {
+              const regex = new RegExp(`${prefix}(\\d+(\\.\\d+)?)`);
+              const match = classes.match(regex);
+              if (match && match[1]) {
+                const remVal = `${parseFloat(match[1]) * 0.25}rem`;
+                cssProps.split(',').forEach(prop => {
+                  htmlItem.style.setProperty(prop, remVal, 'important');
+                });
+              }
+            });
+
+            // Handle absolute positioning offsets (md:top-X, md:right-X, md:bottom-X, md:left-X)
+            const dirMap = { 'md:top-': 'top', 'md:right-': 'right', 'md:bottom-': 'bottom', 'md:left-': 'left' };
+            Object.entries(dirMap).forEach(([prefix, cssProp]) => {
+              const regex = new RegExp(`${prefix}(\\d+)`);
+              const match = classes.match(regex);
+              if (match && match[1]) {
+                htmlItem.style.setProperty(cssProp, `${parseFloat(match[1]) * 0.25}rem`, 'important');
+              }
+            });
+
+            // Handle borders: md:border-r, md:border-l, md:border-t, md:border-b
             if (classes.includes('md:border-r')) {
               htmlItem.style.setProperty('border-right-width', '1px', 'important');
+              htmlItem.style.setProperty('border-right-style', 'solid', 'important');
             }
             if (classes.includes('md:border-l')) {
               htmlItem.style.setProperty('border-left-width', '1px', 'important');
+              htmlItem.style.setProperty('border-left-style', 'solid', 'important');
             }
-            if (classes.includes('md:p-12')) {
-              htmlItem.style.setProperty('padding', '3rem', 'important');
+            if (classes.includes('md:border-t')) {
+              htmlItem.style.setProperty('border-top-width', '1px', 'important');
+              htmlItem.style.setProperty('border-top-style', 'solid', 'important');
+            }
+            if (classes.includes('md:border-b')) {
+              htmlItem.style.setProperty('border-bottom-width', '1px', 'important');
+              htmlItem.style.setProperty('border-bottom-style', 'solid', 'important');
+            }
+            if (classes.includes('md:border-0')) {
+              htmlItem.style.setProperty('border-width', '0px', 'important');
+            }
+            if (classes.includes('md:border')) {
+              htmlItem.style.setProperty('border-width', '1px', 'important');
+              htmlItem.style.setProperty('border-style', 'solid', 'important');
             }
           });
         }
@@ -695,9 +867,29 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       }
     }
 
-    // Clean remaining loader and overlay elements
-    const loaderElements = tempDiv.querySelectorAll(".animate-pulse, .animate-spin, .absolute.inset-0");
-    loaderElements.forEach(el => el.parentNode?.removeChild(el));
+    // Remove all SVGs because Microsoft Word doesn't support vector SVG tags in inline HTML; they cause a critical "File Corrupted" error on opening
+    const svgs = tempDiv.getElementsByTagName("svg");
+    for (let i = svgs.length - 1; i >= 0; i--) {
+      const svg = svgs[i];
+      svg.parentNode?.removeChild(svg);
+    }
+
+    // Clean remaining loader and unwanted overlay/control elements
+    const unwantedSelectors = [
+      ".animate-pulse",
+      ".animate-spin",
+      ".absolute.inset-0",
+      "#screenshot-protection-panel",
+      ".screenshot-protection-panel",
+      "button",
+      "input",
+      "select",
+      ".select-none",
+      "iframe"
+    ];
+    unwantedSelectors.forEach(selector => {
+      tempDiv.querySelectorAll(selector).forEach(el => el.parentNode?.removeChild(el));
+    });
 
     const htmlContent = tempDiv.innerHTML;
     const rawWordContent = `
@@ -730,10 +922,10 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     `;
 
     // Modern MS Word parses UTF-8 HTML with a Byte-Order Mark (BOM) \uFEFF to load correctly on all Office versions
-    const docBlob = new Blob(['\ufeff' + rawWordContent], { type: 'application/msword;charset=utf-8' });
+    const docBlob = new Blob(['\ufeff' + rawWordContent], { type: 'application/vnd.ms-word;charset=utf-8' });
     const filename = `${profile.fullName || 'Resume'}_CV.doc`;
 
-    const delivered = await handleFileDelivery(docBlob, filename, 'application/msword');
+    const delivered = await handleFileDelivery(docBlob, filename, 'application/vnd.ms-word');
     if (!delivered) {
       const url = URL.createObjectURL(docBlob);
       const link = document.createElement('a');
@@ -819,9 +1011,9 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
   const activeFontClass = cvFontFamily === 'default' ? config.fontFamily : `font-${cvFontFamily}`;
 
   const photoSizeClasses = {
-    sm: 'w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28',
-    md: 'w-28 h-28 sm:w-32 sm:h-32 md:w-36 md:h-36',
-    lg: 'w-36 h-36 sm:w-40 sm:h-40 md:w-44 md:h-44',
+    sm: 'w-28 h-28',
+    md: 'w-36 h-36',
+    lg: 'w-44 h-44',
   };
   const activePhotoSizeClass = photoSizeClasses[photoSize] || photoSizeClasses.md;
 
@@ -865,7 +1057,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
   };
 
   const logoBox = (profile.logoUrl && logoPosition !== 'none') ? (
-    <div className={`${logoSizeClasses[logoSize] || 'w-14 h-14'} shrink-0 overflow-hidden flex items-center justify-center self-center md:self-start bg-transparent select-none p-1`}>
+    <div className={`${logoSizeClasses[logoSize] || 'w-14 h-14'} shrink-0 overflow-hidden flex items-center justify-center self-start bg-transparent select-none p-1`}>
       <img 
         src={profile.logoUrl} 
         alt="Brand Logo" 
@@ -879,7 +1071,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
   const summaryBio = profile.summary || "";
 
   const contactsMeta = (
-    <div className={`flex flex-wrap gap-x-3 gap-y-1 justify-center md:justify-start pt-2 ${fs.sub} text-zinc-550 font-mono`}>
+    <div className={`flex flex-wrap gap-x-3 gap-y-1 justify-start pt-2 ${fs.sub} text-zinc-550 font-mono`}>
       <span>{profile.email || 'ahmed@domain.com'}</span>
       <span>•</span>
       <span>{profile.phone || '+966 50 123 4567'}</span>
@@ -1413,11 +1605,40 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         </div>
       )}
 
-      {/* CV Interactive Stage */}
+      {/* CV Interactive Stage Scaler Parent */}
       <div 
-        className={`group relative ${config.paperBg} text-zinc-900 duration-500 transition-colors p-8 md:p-12 shadow-2xl rounded-2xl mx-auto w-full max-w-[210mm] min-h-[297mm] overflow-visible cursor-crosshair select-text`}
-        id="cv-rendered-document-face"
+        ref={stageRef}
+        className="w-full relative overflow-visible flex justify-center"
+        style={{ height: `${1123 * stageScale}px` }}
       >
+        <div 
+          style={{
+            transform: `scale(${stageScale})`,
+            transformOrigin: 'top center',
+            width: '794px',
+            height: '1123px',
+            position: 'absolute',
+            left: '50%',
+            marginLeft: '-397px', // center absolutely
+            top: 0
+          }}
+          className="shadow-2xl rounded-2xl overflow-hidden"
+        >
+          <div 
+            className={`group relative ${config.paperBg} text-zinc-900 duration-500 transition-colors p-10 w-[794px] h-[1123px] overflow-hidden cursor-crosshair select-text`}
+            id="cv-rendered-document-face"
+            style={{
+              width: '794px',
+              height: '1123px',
+              minWidth: '794px',
+              maxWidth: '794px',
+              minHeight: '1123px',
+              maxHeight: '1123px',
+              boxSizing: 'border-box',
+              position: 'relative',
+              overflow: 'hidden'
+            }}
+          >
         {/* PDF Rendering Premium Loader */}
         {pdfLoading && (
           <div className="absolute inset-0 bg-white/90 z-50 flex flex-col items-center justify-center gap-4 cursor-wait font-sans select-none animate-fade-in rounded-2xl">
@@ -1475,16 +1696,16 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
                 {logoBox}
               </div>
             )}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pb-6 border-b-2 border-zinc-200">
+            <div className="grid grid-cols-12 gap-6 pb-6 border-b-2 border-zinc-200">
               {photoBox && (
-                <div className="md:col-span-3 flex justify-center md:justify-start">
+                <div className="col-span-3 flex justify-start">
                   {photoBox}
                 </div>
               )}
-              <div className={`${photoBox ? 'md:col-span-9' : 'md:col-span-12'} space-y-2 text-center md:text-left flex flex-col md:flex-row justify-between items-start w-full`}>
+              <div className={`${photoBox ? 'col-span-9' : 'col-span-12'} space-y-2 text-start flex flex-row justify-between items-start w-full`}>
                 <div className="space-y-2 flex-1">
                   {logoPosition === 'top-start' && logoBox && (
-                    <div className="mb-2 flex justify-center md:justify-start">
+                    <div className="mb-2 flex justify-start">
                       {logoBox}
                     </div>
                   )}
@@ -1494,20 +1715,20 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
                   {contactsMeta}
                 </div>
                 {logoPosition === 'top-end' && logoBox && (
-                  <div className="shrink-0 self-center md:self-start mt-4 md:mt-0">
+                  <div className="shrink-0 self-start mt-0">
                     {logoBox}
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-              <div className="md:col-span-8 space-y-6">
+            <div className="grid grid-cols-12 gap-8">
+              <div className="col-span-8 space-y-6">
                 {experiencesSection}
                 {projectsSection}
                 {educationsSection}
               </div>
-              <div className="md:col-span-4 space-y-6">
+              <div className="col-span-4 space-y-6">
                 {skillsSection}
                 {languagesSection}
                 {certsSection}
@@ -1518,12 +1739,12 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
 
         {/* LAYOUT 2 & 3: SIDEBAR LEFT or SIDEBAR RIGHT */}
         {(config.layout === 'sidebar-left' || config.layout === 'sidebar-right') && (
-          <div className={`max-w-4xl mx-auto ${activeFontClass} ${config.textColor} grid grid-cols-1 md:grid-cols-12 gap-0 border border-zinc-200 rounded-xl overflow-hidden shadow-sm bg-white`}>
+          <div className={`max-w-4xl mx-auto ${activeFontClass} ${config.textColor} grid grid-cols-12 gap-0 border border-zinc-200 rounded-xl overflow-hidden shadow-sm bg-white`}>
             {/* Sidebar Column */}
             <div className={`p-6 ${config.sidebarBg || 'bg-zinc-50'} ${
               config.layout === 'sidebar-left' 
-                ? 'md:col-span-4 md:border-r border-zinc-200 order-1'
-                : 'md:col-span-4 md:border-l border-zinc-200 order-1 md:order-2'
+                ? 'col-span-4 border-r border-zinc-200 order-1'
+                : 'col-span-4 border-l border-zinc-200 order-2'
             } space-y-6`}>
               <div className="flex flex-col items-center text-center space-y-4">
                 {logoPosition === 'top-center' && logoBox && (
@@ -1544,7 +1765,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
               </div>
               
               <div className="space-y-4 pt-4 border-t border-zinc-300">
-                <div className={`space-y-1 ${fs.sub} font-mono break-all text-zinc-650 text-center md:text-left`}>
+                <div className={`space-y-1 ${fs.sub} font-mono break-all text-zinc-650 text-start`}>
                   <div>{profile.email || 'ahmed@domain.com'}</div>
                   <div>{profile.phone || '+966 50 123 4567'}</div>
                   <div>{profile.location || (lang === 'ar' ? 'الرياض، السعودية' : 'Riyadh, KSA')}</div>
@@ -1565,7 +1786,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
 
             {/* Main Content Column */}
             <div className={`p-8 space-y-6 bg-white ${
-              config.layout === 'sidebar-left' ? 'md:col-span-8 order-2' : 'md:col-span-8 order-2 md:order-1'
+              config.layout === 'sidebar-left' ? 'col-span-8 order-2' : 'col-span-8 order-1'
             }`}>
               {summaryBio && (
                 <div className="border-b pb-4 border-zinc-150">
@@ -1584,11 +1805,11 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         {config.layout === 'banner-top' && (
           <div className={`max-w-4xl mx-auto space-y-6 ${activeFontClass} ${config.textColor}`}>
             {/* Header Banner */}
-            <div className={`-mx-8 -mt-8 md:-mx-12 md:-mt-12 p-8 md:p-10 ${config.accentBg} text-white flex flex-col md:flex-row justify-between items-center gap-6`}>
-              <div className="space-y-2 text-center md:text-left flex-1 col-span-1">
+            <div className={`-mx-10 -mt-10 p-8 ${config.accentBg} text-white flex flex-row justify-between items-center gap-6`}>
+              <div className="space-y-2 text-start flex-1 col-span-1">
                 <h1 className={`${fs.title} font-extrabold tracking-tight leading-none text-white`}>{profile.fullName || (lang === 'ar' ? 'أحمد عبد الله العتيبي' : 'Ahmed Al-Otaibi')}</h1>
                 <h2 className={`${fs.subtitle} uppercase tracking-widest font-semibold opacity-90 text-amber-300`}>{profile.jobTitle || (lang === 'ar' ? 'مستشار إدارة المشاريع الفنية' : 'Technical PM Consultant')}</h2>
-                <div className={`flex flex-wrap gap-x-4 gap-y-1 ${fs.sub} opacity-85 font-mono pt-2 justify-center md:justify-start`}>
+                <div className={`flex flex-wrap gap-x-4 gap-y-1 ${fs.sub} opacity-85 font-mono pt-2 justify-start`}>
                   <span>{profile.email || 'ahmed@domain.com'}</span>
                   <span>•</span>
                   <span>{profile.phone || '+966 50 123 4567'}</span>
@@ -1618,13 +1839,13 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-              <div className="md:col-span-8 space-y-6">
+            <div className="grid grid-cols-12 gap-8">
+              <div className="col-span-8 space-y-6">
                 {experiencesSection}
                 {projectsSection}
                 {educationsSection}
               </div>
-              <div className="md:col-span-4 space-y-6">
+              <div className="col-span-4 space-y-6">
                 {skillsSection}
                 {languagesSection}
                 {certsSection}
@@ -1636,13 +1857,13 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         {/* LAYOUT 5: MONOSPACE CRISP TECH GRID */}
         {config.layout === 'mono-grid' && (
           <div className={`max-w-4xl mx-auto space-y-6 ${activeFontClass} ${config.textColor}`}>
-            <div className="border-4 border-zinc-900 p-6 grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+            <div className="border-4 border-zinc-900 p-6 grid grid-cols-12 gap-6 items-center">
               {photoBox && (
-                <div className="md:col-span-3 flex justify-center">
+                <div className="col-span-3 flex justify-start">
                   {photoBox}
                 </div>
               )}
-              <div className={`${photoBox ? 'md:col-span-9' : 'md:col-span-12'} space-y-2 text-center md:text-left flex flex-col md:flex-row justify-between items-start w-full`}>
+              <div className={`${photoBox ? 'col-span-9' : 'col-span-12'} space-y-2 text-start flex flex-row justify-between items-start w-full`}>
                 <div className="space-y-2 flex-1">
                   <span className="text-[9px] bg-zinc-900 text-white px-2 py-0.5 font-mono">CORE_IDENT_ACTIVE</span>
                   <h1 className={`${fs.title} font-black uppercase tracking-tight`} style={getHeadingStyle()}>{profile.fullName || 'أحمد عبد الله العتيبي'}</h1>
@@ -1668,13 +1889,13 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-              <div className="md:col-span-7 border border-zinc-200 p-4 space-y-6 bg-white">
+            <div className="grid grid-cols-12 gap-6">
+              <div className="col-span-7 border border-zinc-200 p-4 space-y-6 bg-white">
                 {experiencesSection}
                 {projectsSection}
                 {educationsSection}
               </div>
-              <div className="md:col-span-5 border border-zinc-200 p-4 space-y-6 bg-white">
+              <div className="col-span-5 border border-zinc-200 p-4 space-y-6 bg-white">
                 {skillsSection}
                 {languagesSection}
                 {certsSection}
@@ -1683,6 +1904,8 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
           </div>
         )}
 
+          </div>
+        </div>
       </div>
 
       {/* 20 TEMPLATES CARDS CATALOG DRAWER OVERLAY */}
