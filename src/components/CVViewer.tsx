@@ -328,8 +328,15 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
   const fetchAsDataURL = async (url: string): Promise<string> => {
     if (!url) return '';
     if (url.startsWith('data:')) return url;
+
+    // Route external URLs through backend proxy to bypass CORS and prevent tainted canvas
+    let targetUrl = url;
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      targetUrl = `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    }
+
     try {
-      const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+      const res = await fetch(targetUrl);
       if (!res.ok) throw new Error(`HTTP status ${res.status}`);
       const blob = await res.blob();
       return new Promise<string>((resolve, reject) => {
@@ -339,7 +346,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         reader.readAsDataURL(blob);
       });
     } catch (err) {
-      console.warn(`Failed fetchAsDataURL for ${url}, trying canvas fallback:`, err);
+      console.warn(`Failed fetchAsDataURL for ${url} via proxy, trying original canvas fallback:`, err);
       return new Promise<string>((resolve) => {
         const img = new window.Image();
         img.crossOrigin = 'anonymous';
@@ -482,6 +489,12 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
               img.src = base64Cache['photo'];
             } else if (profile.logoUrl && originalSrc.includes(profile.logoUrl) && base64Cache['logo']) {
               img.src = base64Cache['logo'];
+            }
+
+            // Fallback: If the image src is still a remote URL, proxy it to prevent CORS/tainting
+            const currentSrc = img.src || '';
+            if ((currentSrc.startsWith('http://') || currentSrc.startsWith('https://')) && !currentSrc.startsWith(window.location.origin)) {
+              img.src = `/api/proxy-image?url=${encodeURIComponent(currentSrc)}`;
             }
           }
         }
@@ -760,7 +773,10 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
 
     if (!success) {
       console.error("All PDF generation level options failed:", lastError);
-      alert(lang === 'ar' ? 'حدث خطأ غير متوقع أثناء تحميل ملف الـ PDF. يرجى تجربة متصفح آخر أو مراجعة الدعم الفني.' : 'Unexpected error during PDF generation. Please try another browser or contact support.');
+      const errMsg = lastError instanceof Error ? lastError.message : String(lastError || 'Unknown error');
+      alert(lang === 'ar' 
+        ? `حدث خطأ غير متوقع أثناء تحميل ملف الـ PDF. التفاصيل: ${errMsg}. يرجى تجربة متصفح آخر أو مراجعة الدعم الفني.` 
+        : `Unexpected error during PDF generation. Details: ${errMsg}. Please try another browser or contact support.`);
     }
   };
 
@@ -819,7 +835,10 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
 
     if (!success) {
       console.error("All Image generation options failed:", lastError);
-      alert(lang === 'ar' ? 'حدث خطأ غير متوقع أثناء تحميل ملف الصورة. يرجى تجربة متصفح آخر أو مراجعة الدعم الفني.' : 'Unexpected error during Image generation. Please try another browser or contact support.');
+      const errMsg = lastError instanceof Error ? lastError.message : String(lastError || 'Unknown error');
+      alert(lang === 'ar' 
+        ? `حدث خطأ غير متوقع أثناء تحميل ملف الصورة. التفاصيل: ${errMsg}. يرجى تجربة متصفح آخر أو مراجعة الدعم الفني.` 
+        : `Unexpected error during Image generation. Details: ${errMsg}. Please try another browser or contact support.`);
     }
   };
 

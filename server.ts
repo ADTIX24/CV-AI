@@ -378,6 +378,35 @@ CRITICAL GUIDELINES:
     }
   });
 
+  // --- API ROUTE: Proxy Image to bypass CORS entirely ---
+  app.get('/api/proxy-image', async (req, res) => {
+    const imageUrl = req.query.url as string;
+    if (!imageUrl) {
+      return res.status(400).send("Missing url query parameter");
+    }
+
+    try {
+      const decodedUrl = decodeURIComponent(imageUrl);
+      
+      const response = await fetch(decodedUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: status ${response.status}`);
+      }
+
+      const contentType = response.headers.get('content-type') || 'image/jpeg';
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(buffer);
+    } catch (err: any) {
+      console.error("[Image Proxy] Error proxying image:", err.message);
+      return res.status(500).send("Error proxying image");
+    }
+  });
+
   // Serve static UI assets for the app preview
   if (process.env.NODE_ENV !== "production") {
     console.log("Starting development mode with Vite middleware...");
