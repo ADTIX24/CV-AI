@@ -419,8 +419,85 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     }
   };
 
+  // Browser-based dynamic OKLCH to RGB converter and CSS sanitizer to prevent html2canvas color parsing crashes on Tailwind CSS v4 variables
+  const sanitizeOklchStyleSheets = () => {
+    const originalRulesMap = new Map<CSSStyleSheet, Array<{ index: number; originalText: string }>>();
+    
+    // Create dummy element to resolve oklch colors using the browser's built-in engine
+    const dummy = document.createElement('div');
+    dummy.style.display = 'none';
+    document.body.appendChild(dummy);
+
+    const convertOklchToRgb = (oklchStr: string): string => {
+      try {
+        dummy.style.color = '';
+        dummy.style.color = oklchStr;
+        return window.getComputedStyle(dummy).color || 'rgb(0, 0, 0)';
+      } catch (e) {
+        return 'rgb(0, 0, 0)';
+      }
+    };
+
+    const sheetsToProcess = Array.from(document.styleSheets);
+
+    for (const sheet of sheetsToProcess) {
+      try {
+        const rules = sheet.cssRules || sheet.rules;
+        if (!rules) continue;
+
+        const savedRules: Array<{ index: number; originalText: string }> = [];
+
+        for (let i = 0; i < rules.length; i++) {
+          const rule = rules[i];
+          if (rule && rule.cssText && rule.cssText.includes('oklch')) {
+            const originalText = rule.cssText;
+            const updatedText = originalText.replace(/oklch\([^)]+\)/g, (match) => {
+              return convertOklchToRgb(match);
+            });
+
+            try {
+              // Save original for restoration
+              savedRules.push({ index: i, originalText });
+              sheet.deleteRule(i);
+              sheet.insertRule(updatedText, i);
+            } catch (err) {
+              console.warn("[CSS Sanitizer] Failed to replace rule at index:", i, err);
+            }
+          }
+        }
+
+        if (savedRules.length > 0) {
+          originalRulesMap.set(sheet, savedRules);
+        }
+      } catch (e) {
+        console.warn("[CORS/Access CSS] Skipping stylesheet rules for sheet:", sheet.href, e);
+      }
+    }
+
+    // Cleanup dummy
+    if (dummy.parentNode) {
+      dummy.parentNode.removeChild(dummy);
+    }
+
+    // Return restore function
+    return () => {
+      // Restore original rules in reverse order to maintain indices
+      for (const [sheet, savedRules] of originalRulesMap.entries()) {
+        for (let k = savedRules.length - 1; k >= 0; k--) {
+          const item = savedRules[k];
+          try {
+            sheet.deleteRule(item.index);
+            sheet.insertRule(item.originalText, item.index);
+          } catch (e) {
+            console.warn("[CSS Sanitizer Restore] Failed to restore rule:", item.originalText, e);
+          }
+        }
+      }
+    };
+  };
+
   const generateHighQualityCanvas = async (scaleVal: number): Promise<HTMLCanvasElement> => {
-    const documentElement = document.getElementById("cv-rendered-document-face");
+    const documentElement = document.getElementById("cv-preview-a4") || document.getElementById("cv-rendered-document-face");
     if (!documentElement) throw new Error("Document face element not found");
 
     const base64Cache: Record<string, string> = {};
@@ -461,63 +538,67 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       console.warn("Some images could not be pre-resolved", e);
     }
 
-    const options = {
-      scale: scaleVal,
-      useCORS: true,
-      allowTaint: false,
-      backgroundColor: '#ffffff',
-      logging: false,
-      windowWidth: 1024,
-      onclone: (clonedDoc: Document) => {
-        const warning = clonedDoc.getElementById('screenshot-protection-panel');
-        if (warning) {
-          warning.style.setProperty('display', 'none', 'important');
-        }
+    // Sanitize stylesheets to bypass OKLCH parsing issues temporarily
+    const restoreOklch = sanitizeOklchStyleSheets();
 
-        const clonedFace = clonedDoc.getElementById('cv-rendered-document-face');
-        if (clonedFace) {
-          const imgs = clonedFace.getElementsByTagName('img');
-          for (let i = 0; i < imgs.length; i++) {
-            const img = imgs[i];
-            const originalSrc = img.getAttribute('src') || '';
-            
-            if (profile.enhancedPhotoNoWatermarkUrl && originalSrc.includes(profile.enhancedPhotoNoWatermarkUrl) && base64Cache['enhancedNoWatermark']) {
-              img.src = base64Cache['enhancedNoWatermark'];
-            } else if (profile.enhancedPhotoUrl && originalSrc.includes(profile.enhancedPhotoUrl) && base64Cache['enhanced']) {
-              img.src = base64Cache['enhanced'];
-            } else if (profile.photoUrl && originalSrc.includes(profile.photoUrl) && base64Cache['photo']) {
-              img.src = base64Cache['photo'];
-            } else if (profile.logoUrl && originalSrc.includes(profile.logoUrl) && base64Cache['logo']) {
-              img.src = base64Cache['logo'];
-            }
+    try {
+      const options = {
+        scale: scaleVal,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: '#ffffff',
+        logging: false,
+        windowWidth: 1024,
+        onclone: (clonedDoc: Document) => {
+          const warning = clonedDoc.getElementById('screenshot-protection-panel');
+          if (warning) {
+            warning.style.setProperty('display', 'none', 'important');
+          }
 
-            // Fallback: If the image src is still a remote URL, proxy it to prevent CORS/tainting
-            const currentSrc = img.src || '';
-            if ((currentSrc.startsWith('http://') || currentSrc.startsWith('https://')) && !currentSrc.startsWith(window.location.origin)) {
-              img.src = `/api/proxy-image?url=${encodeURIComponent(currentSrc)}`;
+          const clonedFace = clonedDoc.getElementById('cv-preview-a4') || clonedDoc.getElementById('cv-rendered-document-face');
+          if (clonedFace) {
+            const imgs = clonedFace.getElementsByTagName('img');
+            for (let i = 0; i < imgs.length; i++) {
+              const img = imgs[i];
+              const originalSrc = img.getAttribute('src') || '';
+              
+              if (profile.enhancedPhotoNoWatermarkUrl && originalSrc.includes(profile.enhancedPhotoNoWatermarkUrl) && base64Cache['enhancedNoWatermark']) {
+                img.src = base64Cache['enhancedNoWatermark'];
+              } else if (profile.enhancedPhotoUrl && originalSrc.includes(profile.enhancedPhotoUrl) && base64Cache['enhanced']) {
+                img.src = base64Cache['enhanced'];
+              } else if (profile.photoUrl && originalSrc.includes(profile.photoUrl) && base64Cache['photo']) {
+                img.src = base64Cache['photo'];
+              } else if (profile.logoUrl && originalSrc.includes(profile.logoUrl) && base64Cache['logo']) {
+                img.src = base64Cache['logo'];
+              }
+
+              // Fallback: If the image src is still a remote URL, proxy it to prevent CORS/tainting
+              const currentSrc = img.src || '';
+              if ((currentSrc.startsWith('http://') || currentSrc.startsWith('https://')) && !currentSrc.startsWith(window.location.origin)) {
+                img.src = `/api/proxy-image?url=${encodeURIComponent(currentSrc)}`;
+              }
             }
           }
-        }
 
-        const element = clonedDoc.getElementById('cv-rendered-document-face');
-        if (element) {
-          element.style.setProperty('width', '794px', 'important');
-          element.style.setProperty('min-width', '794px', 'important');
-          element.style.setProperty('max-width', '794px', 'important');
-          element.style.setProperty('height', '1123px', 'important');
-          element.style.setProperty('min-height', '1123px', 'important');
-          element.style.setProperty('max-height', '1123px', 'important');
-          element.style.setProperty('box-shadow', 'none', 'important');
-          element.style.setProperty('border-radius', '0px', 'important');
-          element.style.setProperty('border', 'none', 'important');
+          const element = clonedDoc.getElementById('cv-preview-a4') || clonedDoc.getElementById('cv-rendered-document-face');
+          if (element) {
+            element.style.setProperty('width', '794px', 'important');
+            element.style.setProperty('min-width', '794px', 'important');
+            element.style.setProperty('max-width', '794px', 'important');
+            element.style.setProperty('height', '1123px', 'important');
+            element.style.setProperty('min-height', '1123px', 'important');
+            element.style.setProperty('max-height', '1123px', 'important');
+            element.style.setProperty('box-shadow', 'none', 'important');
+            element.style.setProperty('border-radius', '0px', 'important');
+            element.style.setProperty('border', 'none', 'important');
 
-          const allColl = element.querySelectorAll('*');
-          allColl.forEach((item) => {
-            const htmlItem = item as HTMLElement;
-            const classes = htmlItem.className || '';
-            if (!classes) return;
+            const allColl = element.querySelectorAll('*');
+            allColl.forEach((item) => {
+              const htmlItem = item as HTMLElement;
+              const classes = htmlItem.className || '';
+              if (!classes) return;
 
-            // Handle display overrides first: e.g. "hidden md:block", "hidden md:flex", "block md:hidden"
+              // Handle display overrides first: e.g. "hidden md:block", "hidden md:flex", "block md:hidden"
             if (classes.includes('hidden') && (classes.includes('md:block') || classes.includes('md:flex') || classes.includes('md:grid'))) {
               if (classes.includes('md:flex')) {
                 htmlItem.style.setProperty('display', 'flex', 'important');
@@ -696,87 +777,335 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       }
     };
 
-    return await html2canvas(documentElement, options);
+      try {
+        return await html2canvas(documentElement, options);
+      } finally {
+        restoreOklch();
+      }
+    } catch (err) {
+      restoreOklch();
+      throw err;
+    }
   };
 
   const downloadAsPDF = async () => {
     setPdfLoading(true);
-
-    const scaleLevels = [2, 1.5, 1];
-    let success = false;
-    let lastError: any = null;
-
-    for (const scaleVal of scaleLevels) {
-      if (success) break;
-      try {
-        const canvas = await generateHighQualityCanvas(scaleVal);
-        const pdfWidth = 210;
-        const pdfHeight = 297;
-        
-        const imgWidth = canvas.width;
-        const imgHeight = canvas.height;
-        const pdfRatio = pdfHeight / pdfWidth;
-        const imgRatio = imgHeight / imgWidth;
-        
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        
-        if (imgRatio <= pdfRatio + 0.05) {
-          const imgData = canvas.toDataURL('image/jpeg', 0.95);
-          pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
-        } else {
-          const imgData = canvas.toDataURL('image/jpeg', 0.95);
-          const renderedHeightMm = (imgHeight * pdfWidth) / imgWidth;
-          let heightLeftMm = renderedHeightMm;
-          let positionMm = 0;
-          
-          pdf.addImage(imgData, 'JPEG', 0, positionMm, pdfWidth, renderedHeightMm, undefined, 'FAST');
-          heightLeftMm -= pdfHeight;
-          
-          while (heightLeftMm > 0) {
-            positionMm -= pdfHeight;
-            pdf.addPage();
-            pdf.addImage(imgData, 'JPEG', 0, positionMm, pdfWidth, renderedHeightMm, undefined, 'FAST');
-            heightLeftMm -= pdfHeight;
-          }
-        }
-
-        const sanitizedName = (profile.fullName || 'cv-professional').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
-        const filename = `${sanitizedName || 'cv'}.pdf`;
-
-        const pdfBlob = pdf.output('blob');
-        const delivered = await handleFileDelivery(pdfBlob, filename, 'application/pdf');
-
-        if (delivered) {
-          success = true;
-          console.log(`PDF successfully generated with scale level: ${scaleVal}`);
-          break;
-        } else {
-          // fallback option for PDF on mobile is to show the compiled image modal so they can share/save safely
-          const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-          if (isMobile) {
-            const imgData = canvas.toDataURL('image/png');
-            setCompiledImage(imgData);
-            success = true;
-            break;
-          }
-          pdf.save(filename);
-          success = true;
-          break;
-        }
-      } catch (error) {
-        console.warn(`PDF compilation with scale:${scaleVal} failed, attempting next scale value...`, error);
-        lastError = error;
-      }
+    const element = document.getElementById('cv-preview-a4') || document.getElementById('cv-rendered-document-face');
+    if (!element) {
+      setPdfLoading(false);
+      return;
     }
 
-    setPdfLoading(false);
+    // 1. Sanitize active stylesheets to prevent "oklch" parsing crashes in html2canvas
+    const restoreOklch = sanitizeOklchStyleSheets();
 
-    if (!success) {
-      console.error("All PDF generation level options failed:", lastError);
-      const errMsg = lastError instanceof Error ? lastError.message : String(lastError || 'Unknown error');
-      alert(lang === 'ar' 
-        ? `حدث خطأ غير متوقع أثناء تحميل ملف الـ PDF. التفاصيل: ${errMsg}. يرجى تجربة متصفح آخر أو مراجعة الدعم الفني.` 
-        : `Unexpected error during PDF generation. Details: ${errMsg}. Please try another browser or contact support.`);
+    try {
+      // 2. Pre-cache any remote images to Base64 to prevent CORS/tainting
+      const base64Cache: Record<string, string> = {};
+      const imgPromises: Promise<any>[] = [];
+
+      if (profile.enhancedPhotoUrl) {
+        imgPromises.push(
+          fetchAsDataURL(profile.enhancedPhotoUrl).then(b64 => {
+            if (b64 && b64.startsWith('data:')) base64Cache['enhanced'] = b64;
+          })
+        );
+      }
+      if (profile.enhancedPhotoNoWatermarkUrl) {
+        imgPromises.push(
+          fetchAsDataURL(profile.enhancedPhotoNoWatermarkUrl).then(b64 => {
+            if (b64 && b64.startsWith('data:')) base64Cache['enhancedNoWatermark'] = b64;
+          })
+        );
+      }
+      if (profile.photoUrl) {
+        imgPromises.push(
+          fetchAsDataURL(profile.photoUrl).then(b64 => {
+            if (b64 && b64.startsWith('data:')) base64Cache['photo'] = b64;
+          })
+        );
+      }
+      if (profile.logoUrl) {
+        imgPromises.push(
+          fetchAsDataURL(profile.logoUrl).then(b64 => {
+            if (b64 && b64.startsWith('data:')) base64Cache['logo'] = b64;
+          })
+        );
+      }
+
+      try {
+        await Promise.all(imgPromises);
+      } catch (e) {
+        console.warn("Some images could not be pre-resolved", e);
+      }
+
+      const sanitizedName = (profile.fullName || 'cv-professional').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
+      const filename = `${sanitizedName || 'cv'}.pdf`;
+
+      // 3. Setup html2pdf options matching user request but enhanced with onclone image patching
+      const opt = {
+        margin: 0,
+        filename: filename,
+        image: { type: 'jpeg' as const, quality: 0.98 },
+        html2canvas: { 
+          scale: 2, // Ultra sharp text rendering
+          useCORS: true,
+          letterRendering: true,
+          allowTaint: false,
+          backgroundColor: '#ffffff',
+          logging: false,
+          windowWidth: 1024,
+          onclone: (clonedDoc: Document) => {
+            // Hide watermark or protections if needed
+            const warning = clonedDoc.getElementById('screenshot-protection-panel');
+            if (warning) {
+              warning.style.setProperty('display', 'none', 'important');
+            }
+
+            const clonedFace = clonedDoc.getElementById('cv-preview-a4') || clonedDoc.getElementById('cv-rendered-document-face');
+            if (clonedFace) {
+              // Patch image sources with pre-fetched base64 to ensure they load offline/CORS-free
+              const imgs = clonedFace.getElementsByTagName('img');
+              for (let i = 0; i < imgs.length; i++) {
+                const img = imgs[i];
+                const originalSrc = img.getAttribute('src') || '';
+                
+                if (profile.enhancedPhotoNoWatermarkUrl && originalSrc.includes(profile.enhancedPhotoNoWatermarkUrl) && base64Cache['enhancedNoWatermark']) {
+                  img.src = base64Cache['enhancedNoWatermark'];
+                } else if (profile.enhancedPhotoUrl && originalSrc.includes(profile.enhancedPhotoUrl) && base64Cache['enhanced']) {
+                  img.src = base64Cache['enhanced'];
+                } else if (profile.photoUrl && originalSrc.includes(profile.photoUrl) && base64Cache['photo']) {
+                  img.src = base64Cache['photo'];
+                } else if (profile.logoUrl && originalSrc.includes(profile.logoUrl) && base64Cache['logo']) {
+                  img.src = base64Cache['logo'];
+                }
+
+                const currentSrc = img.src || '';
+                if ((currentSrc.startsWith('http://') || currentSrc.startsWith('https://')) && !currentSrc.startsWith(window.location.origin)) {
+                  img.src = `/api/proxy-image?url=${encodeURIComponent(currentSrc)}`;
+                }
+              }
+
+              // Apply grid and print layout styles for perfect layout capture in html2canvas
+              clonedFace.style.setProperty('width', '794px', 'important');
+              clonedFace.style.setProperty('min-width', '794px', 'important');
+              clonedFace.style.setProperty('max-width', '794px', 'important');
+              clonedFace.style.setProperty('height', '1123px', 'important');
+              clonedFace.style.setProperty('min-height', '1123px', 'important');
+              clonedFace.style.setProperty('max-height', '1123px', 'important');
+              clonedFace.style.setProperty('box-shadow', 'none', 'important');
+              clonedFace.style.setProperty('border-radius', '0px', 'important');
+              clonedFace.style.setProperty('border', 'none', 'important');
+
+              const allColl = clonedFace.querySelectorAll('*');
+              allColl.forEach((item) => {
+                const htmlItem = item as HTMLElement;
+                const classes = htmlItem.className || '';
+                if (!classes) return;
+
+                // Handle display overrides first: e.g. "hidden md:block"
+                if (classes.includes('hidden') && (classes.includes('md:block') || classes.includes('md:flex') || classes.includes('md:grid'))) {
+                  if (classes.includes('md:flex')) {
+                    htmlItem.style.setProperty('display', 'flex', 'important');
+                  } else if (classes.includes('md:grid')) {
+                    htmlItem.style.setProperty('display', 'grid', 'important');
+                  } else {
+                    htmlItem.style.setProperty('display', 'block', 'important');
+                  }
+                }
+                if ((classes.includes('block') || classes.includes('flex') || classes.includes('grid')) && classes.includes('md:hidden')) {
+                  htmlItem.style.setProperty('display', 'none', 'important');
+                }
+
+                // Handle order overrides
+                const orderMatch = classes.match(/md:order-(\d+|first|last)/);
+                if (orderMatch && orderMatch[1]) {
+                  const val = orderMatch[1];
+                  let orderStyle = val;
+                  if (val === 'first') orderStyle = '-9999';
+                  if (val === 'last') orderStyle = '9999';
+                  htmlItem.style.setProperty('order', orderStyle, 'important');
+                }
+
+                // Handle grid column template
+                const gridColsMatch = classes.match(/md:grid-cols-(\d+)/);
+                if (gridColsMatch && gridColsMatch[1]) {
+                  htmlItem.style.setProperty('display', 'grid', 'important');
+                  htmlItem.style.setProperty('grid-template-columns', `repeat(${gridColsMatch[1]}, minmax(0, 1fr))`, 'important');
+                }
+
+                // Handle grid column span
+                const colSpanMatch = classes.match(/md:col-span-(\d+)/);
+                if (colSpanMatch && colSpanMatch[1]) {
+                  htmlItem.style.setProperty('grid-column', `span ${colSpanMatch[1]} / span ${colSpanMatch[1]}`, 'important');
+                }
+
+                // Handle relative/absolute position
+                if (classes.includes('md:absolute')) {
+                  htmlItem.style.setProperty('position', 'absolute', 'important');
+                } else if (classes.includes('md:relative')) {
+                  htmlItem.style.setProperty('position', 'relative', 'important');
+                }
+
+                // Handle flex directions
+                if (classes.includes('md:flex-row')) {
+                  htmlItem.style.setProperty('display', 'flex', 'important');
+                  htmlItem.style.setProperty('flex-direction', 'row', 'important');
+                } else if (classes.includes('md:flex-col')) {
+                  htmlItem.style.setProperty('display', 'flex', 'important');
+                  htmlItem.style.setProperty('flex-direction', 'column', 'important');
+                }
+
+                // Handle text alignments
+                if (classes.includes('md:text-left')) {
+                  htmlItem.style.setProperty('text-align', 'left', 'important');
+                } else if (classes.includes('md:text-right')) {
+                  htmlItem.style.setProperty('text-align', 'right', 'important');
+                } else if (classes.includes('md:text-center')) {
+                  htmlItem.style.setProperty('text-align', 'center', 'important');
+                } else if (classes.includes('md:text-justify')) {
+                  htmlItem.style.setProperty('text-align', 'justify', 'important');
+                }
+
+                // Handle alignments: md:justify-..., md:items-...
+                const justifyMatch = classes.match(/md:justify-(start|end|center|between|around|evenly)/);
+                if (justifyMatch && justifyMatch[1]) {
+                  let val = justifyMatch[1];
+                  if (val === 'start') val = 'flex-start';
+                  if (val === 'end') val = 'flex-end';
+                  if (val === 'between') val = 'space-between';
+                  if (val === 'around') val = 'space-around';
+                  if (val === 'evenly') val = 'space-evenly';
+                  htmlItem.style.setProperty('justify-content', val, 'important');
+                }
+                const itemsMatch = classes.match(/md:items-(start|end|center|baseline|stretch)/);
+                if (itemsMatch && itemsMatch[1]) {
+                  let val = itemsMatch[1];
+                  if (val === 'start') val = 'flex-start';
+                  if (val === 'end') val = 'flex-end';
+                  htmlItem.style.setProperty('align-items', val, 'important');
+                }
+
+                // Spacing offsets
+                const gapMatch = classes.match(/md:gap-(\d+)/);
+                if (gapMatch && gapMatch[1]) {
+                  htmlItem.style.setProperty('gap', `${parseFloat(gapMatch[1]) * 0.25}rem`, 'important');
+                }
+                const gapXMatch = classes.match(/md:gap-x-(\d+)/);
+                if (gapXMatch && gapXMatch[1]) {
+                  htmlItem.style.setProperty('column-gap', `${parseFloat(gapXMatch[1]) * 0.25}rem`, 'important');
+                }
+                const gapYMatch = classes.match(/md:gap-y-(\d+)/);
+                if (gapYMatch && gapYMatch[1]) {
+                  htmlItem.style.setProperty('row-gap', `${parseFloat(gapYMatch[1]) * 0.25}rem`, 'important');
+                }
+
+                // Padding mappings
+                const paddingMap: Record<string, string> = {
+                  'md:p-': 'padding',
+                  'md:px-': 'padding-left,padding-right',
+                  'md:py-': 'padding-top,padding-bottom',
+                  'md:pt-': 'padding-top',
+                  'md:pb-': 'padding-bottom',
+                  'md:pl-': 'padding-left',
+                  'md:pr-': 'padding-right'
+                };
+                Object.entries(paddingMap).forEach(([prefix, cssProps]) => {
+                  const regex = new RegExp(`${prefix}(\\d+(\\.\\d+)?)`);
+                  const match = classes.match(regex);
+                  if (match && match[1]) {
+                    const remVal = `${parseFloat(match[1]) * 0.25}rem`;
+                    cssProps.split(',').forEach(prop => {
+                      htmlItem.style.setProperty(prop, remVal, 'important');
+                    });
+                  }
+                });
+
+                // Margin mappings
+                const marginMap: Record<string, string> = {
+                  'md:m-': 'margin',
+                  'md:mx-': 'margin-left,margin-right',
+                  'md:my-': 'margin-top,margin-bottom',
+                  'md:mt-': 'margin-top',
+                  'md:mb-': 'margin-bottom',
+                  'md:ml-': 'margin-left',
+                  'md:mr-': 'margin-right'
+                };
+                Object.entries(marginMap).forEach(([prefix, cssProps]) => {
+                  const regex = new RegExp(`${prefix}(\\d+(\\.\\d+)?)`);
+                  const match = classes.match(regex);
+                  if (match && match[1]) {
+                    const remVal = `${parseFloat(match[1]) * 0.25}rem`;
+                    cssProps.split(',').forEach(prop => {
+                      htmlItem.style.setProperty(prop, remVal, 'important');
+                    });
+                  }
+                });
+
+                // Positional offsets
+                const dirMap = { 'md:top-': 'top', 'md:right-': 'right', 'md:bottom-': 'bottom', 'md:left-': 'left' };
+                Object.entries(dirMap).forEach(([prefix, cssProp]) => {
+                  const regex = new RegExp(`${prefix}(\\d+)`);
+                  const match = classes.match(regex);
+                  if (match && match[1]) {
+                    htmlItem.style.setProperty(cssProp, `${parseFloat(match[1]) * 0.25}rem`, 'important');
+                  }
+                });
+
+                // Borders
+                if (classes.includes('md:border-r')) {
+                  htmlItem.style.setProperty('border-right-width', '1px', 'important');
+                  htmlItem.style.setProperty('border-right-style', 'solid', 'important');
+                }
+                if (classes.includes('md:border-l')) {
+                  htmlItem.style.setProperty('border-left-width', '1px', 'important');
+                  htmlItem.style.setProperty('border-left-style', 'solid', 'important');
+                }
+                if (classes.includes('md:border-t')) {
+                  htmlItem.style.setProperty('border-top-width', '1px', 'important');
+                  htmlItem.style.setProperty('border-top-style', 'solid', 'important');
+                }
+                if (classes.includes('md:border-b')) {
+                  htmlItem.style.setProperty('border-bottom-width', '1px', 'important');
+                  htmlItem.style.setProperty('border-bottom-style', 'solid', 'important');
+                }
+                if (classes.includes('md:border-0')) {
+                  htmlItem.style.setProperty('border-width', '0px', 'important');
+                }
+                if (classes.includes('md:border')) {
+                  htmlItem.style.setProperty('border-width', '1px', 'important');
+                  htmlItem.style.setProperty('border-style', 'solid', 'important');
+                }
+
+                // Remove oklch from any inline styles on cloned items
+                if (htmlItem.style) {
+                  for (let j = 0; j < htmlItem.style.length; j++) {
+                    const prop = htmlItem.style[j];
+                    const val = htmlItem.style.getPropertyValue(prop);
+                    if (val && val.includes('oklch')) {
+                      htmlItem.style.removeProperty(prop);
+                    }
+                  }
+                }
+              });
+            }
+          }
+        },
+        jsPDF: { unit: 'px', format: [794, 1123] as [number, number], orientation: 'portrait' as const }
+      };
+
+      // Import html2pdf.js dynamically to bypass SSR/bundling build errors
+      const html2pdf = (await import('html2pdf.js')).default;
+      await html2pdf().set(opt).from(element).save();
+
+    } catch (error) {
+      console.error("Error during PDF download, falling back to window.print():", error);
+      // Safe fallback print layout
+      window.print();
+    } finally {
+      // Always restore original oklch rules to active stylesheets
+      restoreOklch();
+      setPdfLoading(false);
     }
   };
 
@@ -844,7 +1173,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
 
   // Generate and download fully formatted editable Word Document file (.doc)
   const downloadAsWord = async () => {
-    const documentElement = document.getElementById("cv-rendered-document-face");
+    const documentElement = document.getElementById("cv-preview-a4") || document.getElementById("cv-rendered-document-face");
     if (!documentElement) return;
 
     // Create a temporary clone inside a virtual div to sanitize heavy elements
@@ -1645,7 +1974,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         >
           <div 
             className={`group relative ${config.paperBg} text-zinc-900 duration-500 transition-colors p-10 w-[794px] h-[1123px] overflow-hidden cursor-crosshair select-text`}
-            id="cv-rendered-document-face"
+            id="cv-preview-a4"
             style={{
               width: '794px',
               height: '1123px',
