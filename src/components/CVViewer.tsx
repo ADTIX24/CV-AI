@@ -421,7 +421,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
 
   // Browser-based dynamic OKLCH to RGB converter and CSS sanitizer to prevent html2canvas color parsing crashes on Tailwind CSS v4 variables
   const sanitizeOklchStyleSheets = () => {
-    const savedRules: Array<{ rule: CSSStyleRule; prop: string; originalVal: string }> = [];
+    const savedRules: Array<{ rule: CSSStyleRule; originalCssText: string }> = [];
     
     // Create dummy element to resolve oklch colors using the browser's built-in engine
     const dummy = document.createElement('div');
@@ -454,16 +454,12 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         const rule = rules[i];
         try {
           if (rule instanceof CSSStyleRule) {
-            const style = rule.style;
-            for (let j = 0; j < style.length; j++) {
-              const prop = style[j];
-              const val = style.getPropertyValue(prop);
-              if (val && val.includes('oklch')) {
-                const cleaned = sanitizeOklchString(val);
-                if (cleaned !== val) {
-                  savedRules.push({ rule, prop, originalVal: val });
-                  style.setProperty(prop, cleaned);
-                }
+            const css = rule.style.cssText;
+            if (css && css.includes('oklch')) {
+              const cleaned = sanitizeOklchString(css);
+              if (cleaned !== css) {
+                savedRules.push({ rule, originalCssText: css });
+                rule.style.cssText = cleaned;
               }
             }
           } else if ('cssRules' in rule) {
@@ -494,13 +490,16 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       dummy.parentNode.removeChild(dummy);
     }
 
-    // Return restore function
-    return () => {
-      for (const item of savedRules) {
-        try {
-          item.rule.style.setProperty(item.prop, item.originalVal);
-        } catch (e) {
-          console.warn("[Restore] Failed to restore style property:", item.prop, e);
+    // Return restore function and helper
+    return {
+      sanitizeString: sanitizeOklchString,
+      restore: () => {
+        for (const item of savedRules) {
+          try {
+            item.rule.style.cssText = item.originalCssText;
+          } catch (e) {
+            console.warn("[Restore] Failed to restore CSS style rule:", e);
+          }
         }
       }
     };
@@ -549,7 +548,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     }
 
     // Sanitize stylesheets to bypass OKLCH parsing issues temporarily
-    const restoreOklch = sanitizeOklchStyleSheets();
+    const { sanitizeString, restore: restoreOklch } = sanitizeOklchStyleSheets();
 
     try {
       const options = {
@@ -788,23 +787,18 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
 
           // Clean/convert any oklch in inline styles of the container and all of its children
           const sanitizeElementOklch = (el: HTMLElement) => {
-            if (el.style) {
-              for (let j = 0; j < el.style.length; j++) {
-                const prop = el.style[j];
-                const val = el.style.getPropertyValue(prop);
-                if (val && val.includes('oklch')) {
-                  try {
-                    const tempEl = clonedDoc.createElement('div');
-                    tempEl.style.color = val;
-                    clonedDoc.body.appendChild(tempEl);
-                    const rgb = window.getComputedStyle(tempEl).color;
-                    clonedDoc.body.removeChild(tempEl);
-                    if (rgb && (rgb.startsWith('rgb') || rgb.startsWith('rgba'))) {
-                      el.style.setProperty(prop, rgb);
-                    } else {
-                      el.style.removeProperty(prop);
-                    }
-                  } catch (e) {
+            if (el.style && el.style.cssText && el.style.cssText.includes('oklch')) {
+              try {
+                const cleaned = sanitizeString(el.style.cssText);
+                if (cleaned !== el.style.cssText) {
+                  el.style.cssText = cleaned;
+                }
+              } catch (e) {
+                // Fallback to removing oklch properties
+                for (let j = 0; j < el.style.length; j++) {
+                  const prop = el.style[j];
+                  const val = el.style.getPropertyValue(prop);
+                  if (val && val.includes('oklch')) {
                     el.style.removeProperty(prop);
                   }
                 }
@@ -838,343 +832,40 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       return;
     }
 
-    // 1. Sanitize active stylesheets to prevent "oklch" parsing crashes in html2canvas
-    const restoreOklch = sanitizeOklchStyleSheets();
-
     try {
-      // 2. Pre-cache any remote images to Base64 to prevent CORS/tainting
-      const base64Cache: Record<string, string> = {};
-      const imgPromises: Promise<any>[] = [];
-
-      if (profile.enhancedPhotoUrl) {
-        imgPromises.push(
-          fetchAsDataURL(profile.enhancedPhotoUrl).then(b64 => {
-            if (b64 && b64.startsWith('data:')) base64Cache['enhanced'] = b64;
-          })
-        );
-      }
-      if (profile.enhancedPhotoNoWatermarkUrl) {
-        imgPromises.push(
-          fetchAsDataURL(profile.enhancedPhotoNoWatermarkUrl).then(b64 => {
-            if (b64 && b64.startsWith('data:')) base64Cache['enhancedNoWatermark'] = b64;
-          })
-        );
-      }
-      if (profile.photoUrl) {
-        imgPromises.push(
-          fetchAsDataURL(profile.photoUrl).then(b64 => {
-            if (b64 && b64.startsWith('data:')) base64Cache['photo'] = b64;
-          })
-        );
-      }
-      if (profile.logoUrl) {
-        imgPromises.push(
-          fetchAsDataURL(profile.logoUrl).then(b64 => {
-            if (b64 && b64.startsWith('data:')) base64Cache['logo'] = b64;
-          })
-        );
-      }
-
-      try {
-        await Promise.all(imgPromises);
-      } catch (e) {
-        console.warn("Some images could not be pre-resolved", e);
-      }
-
       const sanitizedName = (profile.fullName || 'cv-professional').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
       const filename = `${sanitizedName || 'cv'}.pdf`;
 
-      // 3. Setup html2pdf options matching user request but enhanced with onclone image patching
-      const opt = {
-        margin: 0,
-        filename: filename,
-        image: { type: 'jpeg' as const, quality: 1.0 },
-        html2canvas: { 
-          scale: 2, // Ultra sharp text rendering
-          useCORS: true,
-          letterRendering: true,
-          allowTaint: false,
-          backgroundColor: '#ffffff',
-          logging: false,
-          windowWidth: 794,
-          windowHeight: 1123,
-          onclone: (clonedDoc: Document) => {
-            // Hide watermark or protections if needed
-            const warning = clonedDoc.getElementById('screenshot-protection-panel');
-            if (warning) {
-              warning.style.setProperty('display', 'none', 'important');
-            }
+      // 1. Generate the single-page canvas at high quality (scale 2)
+      const canvas = await generateHighQualityCanvas(2);
+      
+      // 2. Convert to high-quality JPEG data URL
+      const imgData = canvas.toDataURL('image/jpeg', 1.0);
 
-            const clonedFace = clonedDoc.getElementById('cv-preview-a4') || clonedDoc.getElementById('cv-rendered-document-face');
-            if (clonedFace) {
-              // Patch image sources with pre-fetched base64 to ensure they load offline/CORS-free
-              const imgs = clonedFace.getElementsByTagName('img');
-              for (let i = 0; i < imgs.length; i++) {
-                const img = imgs[i];
-                const originalSrc = img.getAttribute('src') || '';
-                
-                if (profile.enhancedPhotoNoWatermarkUrl && originalSrc.includes(profile.enhancedPhotoNoWatermarkUrl) && base64Cache['enhancedNoWatermark']) {
-                  img.src = base64Cache['enhancedNoWatermark'];
-                } else if (profile.enhancedPhotoUrl && originalSrc.includes(profile.enhancedPhotoUrl) && base64Cache['enhanced']) {
-                  img.src = base64Cache['enhanced'];
-                } else if (profile.photoUrl && originalSrc.includes(profile.photoUrl) && base64Cache['photo']) {
-                  img.src = base64Cache['photo'];
-                } else if (profile.logoUrl && originalSrc.includes(profile.logoUrl) && base64Cache['logo']) {
-                  img.src = base64Cache['logo'];
-                }
+      // 3. Initialize jsPDF with exact dimensions matching A4 ratio at 96DPI
+      const { jsPDF } = await import('jspdf');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'px',
+        format: [794, 1123],
+        compress: true
+      });
 
-                const currentSrc = img.src || '';
-                if ((currentSrc.startsWith('http://') || currentSrc.startsWith('https://')) && !currentSrc.startsWith(window.location.origin)) {
-                  img.src = `/api/proxy-image?url=${encodeURIComponent(currentSrc)}`;
-                }
-              }
+      // 4. Draw image onto the single A4 page filling it completely
+      pdf.addImage(imgData, 'JPEG', 0, 0, 794, 1123, undefined, 'FAST');
+      
+      // 5. Save the document and handle mobile/WebView deliveries
+      const pdfBlob = pdf.output('blob');
+      const delivered = await handleFileDelivery(pdfBlob, filename, 'application/pdf');
 
-              // Apply grid and print layout styles for perfect layout capture in html2canvas
-              clonedFace.style.setProperty('width', '794px', 'important');
-              clonedFace.style.setProperty('min-width', '794px', 'important');
-              clonedFace.style.setProperty('max-width', '794px', 'important');
-              clonedFace.style.setProperty('height', '1123px', 'important');
-              clonedFace.style.setProperty('min-height', '1123px', 'important');
-              clonedFace.style.setProperty('max-height', '1123px', 'important');
-              clonedFace.style.setProperty('overflow', 'hidden', 'important');
-              clonedFace.style.setProperty('box-shadow', 'none', 'important');
-              clonedFace.style.setProperty('border-radius', '0px', 'important');
-              clonedFace.style.setProperty('border', 'none', 'important');
-
-              const allColl = clonedFace.querySelectorAll('*');
-              allColl.forEach((item) => {
-                const htmlItem = item as HTMLElement;
-                const classes = htmlItem.className || '';
-                if (!classes) return;
-
-                // Handle display overrides first: e.g. "hidden md:block"
-                if (classes.includes('hidden') && (classes.includes('md:block') || classes.includes('md:flex') || classes.includes('md:grid'))) {
-                  if (classes.includes('md:flex')) {
-                    htmlItem.style.setProperty('display', 'flex', 'important');
-                  } else if (classes.includes('md:grid')) {
-                    htmlItem.style.setProperty('display', 'grid', 'important');
-                  } else {
-                    htmlItem.style.setProperty('display', 'block', 'important');
-                  }
-                }
-                if ((classes.includes('block') || classes.includes('flex') || classes.includes('grid')) && classes.includes('md:hidden')) {
-                  htmlItem.style.setProperty('display', 'none', 'important');
-                }
-
-                // Handle order overrides
-                const orderMatch = classes.match(/md:order-(\d+|first|last)/);
-                if (orderMatch && orderMatch[1]) {
-                  const val = orderMatch[1];
-                  let orderStyle = val;
-                  if (val === 'first') orderStyle = '-9999';
-                  if (val === 'last') orderStyle = '9999';
-                  htmlItem.style.setProperty('order', orderStyle, 'important');
-                }
-
-                // Handle grid column template
-                const gridColsMatch = classes.match(/md:grid-cols-(\d+)/);
-                if (gridColsMatch && gridColsMatch[1]) {
-                  htmlItem.style.setProperty('display', 'grid', 'important');
-                  htmlItem.style.setProperty('grid-template-columns', `repeat(${gridColsMatch[1]}, minmax(0, 1fr))`, 'important');
-                }
-
-                // Handle grid column span
-                const colSpanMatch = classes.match(/md:col-span-(\d+)/);
-                if (colSpanMatch && colSpanMatch[1]) {
-                  htmlItem.style.setProperty('grid-column', `span ${colSpanMatch[1]} / span ${colSpanMatch[1]}`, 'important');
-                }
-
-                // Handle relative/absolute position
-                if (classes.includes('md:absolute')) {
-                  htmlItem.style.setProperty('position', 'absolute', 'important');
-                } else if (classes.includes('md:relative')) {
-                  htmlItem.style.setProperty('position', 'relative', 'important');
-                }
-
-                // Handle flex directions
-                if (classes.includes('md:flex-row')) {
-                  htmlItem.style.setProperty('display', 'flex', 'important');
-                  htmlItem.style.setProperty('flex-direction', 'row', 'important');
-                } else if (classes.includes('md:flex-col')) {
-                  htmlItem.style.setProperty('display', 'flex', 'important');
-                  htmlItem.style.setProperty('flex-direction', 'column', 'important');
-                }
-
-                // Handle text alignments
-                if (classes.includes('md:text-left')) {
-                  htmlItem.style.setProperty('text-align', 'left', 'important');
-                } else if (classes.includes('md:text-right')) {
-                  htmlItem.style.setProperty('text-align', 'right', 'important');
-                } else if (classes.includes('md:text-center')) {
-                  htmlItem.style.setProperty('text-align', 'center', 'important');
-                } else if (classes.includes('md:text-justify')) {
-                  htmlItem.style.setProperty('text-align', 'justify', 'important');
-                }
-
-                // Handle alignments: md:justify-..., md:items-...
-                const justifyMatch = classes.match(/md:justify-(start|end|center|between|around|evenly)/);
-                if (justifyMatch && justifyMatch[1]) {
-                  let val = justifyMatch[1];
-                  if (val === 'start') val = 'flex-start';
-                  if (val === 'end') val = 'flex-end';
-                  if (val === 'between') val = 'space-between';
-                  if (val === 'around') val = 'space-around';
-                  if (val === 'evenly') val = 'space-evenly';
-                  htmlItem.style.setProperty('justify-content', val, 'important');
-                }
-                const itemsMatch = classes.match(/md:items-(start|end|center|baseline|stretch)/);
-                if (itemsMatch && itemsMatch[1]) {
-                  let val = itemsMatch[1];
-                  if (val === 'start') val = 'flex-start';
-                  if (val === 'end') val = 'flex-end';
-                  htmlItem.style.setProperty('align-items', val, 'important');
-                }
-
-                // Spacing offsets
-                const gapMatch = classes.match(/md:gap-(\d+)/);
-                if (gapMatch && gapMatch[1]) {
-                  htmlItem.style.setProperty('gap', `${parseFloat(gapMatch[1]) * 0.25}rem`, 'important');
-                }
-                const gapXMatch = classes.match(/md:gap-x-(\d+)/);
-                if (gapXMatch && gapXMatch[1]) {
-                  htmlItem.style.setProperty('column-gap', `${parseFloat(gapXMatch[1]) * 0.25}rem`, 'important');
-                }
-                const gapYMatch = classes.match(/md:gap-y-(\d+)/);
-                if (gapYMatch && gapYMatch[1]) {
-                  htmlItem.style.setProperty('row-gap', `${parseFloat(gapYMatch[1]) * 0.25}rem`, 'important');
-                }
-
-                // Padding mappings
-                const paddingMap: Record<string, string> = {
-                  'md:p-': 'padding',
-                  'md:px-': 'padding-left,padding-right',
-                  'md:py-': 'padding-top,padding-bottom',
-                  'md:pt-': 'padding-top',
-                  'md:pb-': 'padding-bottom',
-                  'md:pl-': 'padding-left',
-                  'md:pr-': 'padding-right'
-                };
-                Object.entries(paddingMap).forEach(([prefix, cssProps]) => {
-                  const regex = new RegExp(`${prefix}(\\d+(\\.\\d+)?)`);
-                  const match = classes.match(regex);
-                  if (match && match[1]) {
-                    const remVal = `${parseFloat(match[1]) * 0.25}rem`;
-                    cssProps.split(',').forEach(prop => {
-                      htmlItem.style.setProperty(prop, remVal, 'important');
-                    });
-                  }
-                });
-
-                // Margin mappings
-                const marginMap: Record<string, string> = {
-                  'md:m-': 'margin',
-                  'md:mx-': 'margin-left,margin-right',
-                  'md:my-': 'margin-top,margin-bottom',
-                  'md:mt-': 'margin-top',
-                  'md:mb-': 'margin-bottom',
-                  'md:ml-': 'margin-left',
-                  'md:mr-': 'margin-right'
-                };
-                Object.entries(marginMap).forEach(([prefix, cssProps]) => {
-                  const regex = new RegExp(`${prefix}(\\d+(\\.\\d+)?)`);
-                  const match = classes.match(regex);
-                  if (match && match[1]) {
-                    const remVal = `${parseFloat(match[1]) * 0.25}rem`;
-                    cssProps.split(',').forEach(prop => {
-                      htmlItem.style.setProperty(prop, remVal, 'important');
-                    });
-                  }
-                });
-
-                // Positional offsets
-                const dirMap = { 'md:top-': 'top', 'md:right-': 'right', 'md:bottom-': 'bottom', 'md:left-': 'left' };
-                Object.entries(dirMap).forEach(([prefix, cssProp]) => {
-                  const regex = new RegExp(`${prefix}(\\d+)`);
-                  const match = classes.match(regex);
-                  if (match && match[1]) {
-                    htmlItem.style.setProperty(cssProp, `${parseFloat(match[1]) * 0.25}rem`, 'important');
-                  }
-                });
-
-                // Borders
-                if (classes.includes('md:border-r')) {
-                  htmlItem.style.setProperty('border-right-width', '1px', 'important');
-                  htmlItem.style.setProperty('border-right-style', 'solid', 'important');
-                }
-                if (classes.includes('md:border-l')) {
-                  htmlItem.style.setProperty('border-left-width', '1px', 'important');
-                  htmlItem.style.setProperty('border-left-style', 'solid', 'important');
-                }
-                if (classes.includes('md:border-t')) {
-                  htmlItem.style.setProperty('border-top-width', '1px', 'important');
-                  htmlItem.style.setProperty('border-top-style', 'solid', 'important');
-                }
-                if (classes.includes('md:border-b')) {
-                  htmlItem.style.setProperty('border-bottom-width', '1px', 'important');
-                  htmlItem.style.setProperty('border-bottom-style', 'solid', 'important');
-                }
-                if (classes.includes('md:border-0')) {
-                  htmlItem.style.setProperty('border-width', '0px', 'important');
-                }
-                if (classes.includes('md:border')) {
-                  htmlItem.style.setProperty('border-width', '1px', 'important');
-                  htmlItem.style.setProperty('border-style', 'solid', 'important');
-                }
-
-              });
-
-              // Clean/convert any oklch in inline styles of the container and all of its children
-              const sanitizeElementOklch = (el: HTMLElement) => {
-                if (el.style) {
-                  for (let j = 0; j < el.style.length; j++) {
-                    const prop = el.style[j];
-                    const val = el.style.getPropertyValue(prop);
-                    if (val && val.includes('oklch')) {
-                      try {
-                        const tempEl = clonedDoc.createElement('div');
-                        tempEl.style.color = val;
-                        clonedDoc.body.appendChild(tempEl);
-                        const rgb = window.getComputedStyle(tempEl).color;
-                        clonedDoc.body.removeChild(tempEl);
-                        if (rgb && (rgb.startsWith('rgb') || rgb.startsWith('rgba'))) {
-                          el.style.setProperty(prop, rgb);
-                        } else {
-                          el.style.removeProperty(prop);
-                        }
-                      } catch (e) {
-                        el.style.removeProperty(prop);
-                      }
-                    }
-                  }
-                }
-              };
-
-              sanitizeElementOklch(clonedFace);
-              const allChilds = clonedFace.querySelectorAll('*');
-              allChilds.forEach((item) => sanitizeElementOklch(item as HTMLElement));
-            }
-          }
-        },
-        jsPDF: { 
-          unit: 'px', 
-          format: [794, 1123] as [number, number], 
-          orientation: 'portrait' as const,
-          compress: true
-        },
-        pagebreak: { mode: ['avoid-all'] as any }
-      };
-
-      // Import html2pdf.js dynamically to bypass SSR/bundling build errors
-      const html2pdf = (await import('html2pdf.js')).default;
-      await html2pdf().set(opt).from(element).save();
-
+      if (!delivered) {
+        pdf.save(filename);
+      }
     } catch (error) {
       console.error("Error during PDF download, falling back to window.print():", error);
       // Safe fallback print layout
       window.print();
     } finally {
-      // Always restore original oklch rules to active stylesheets
-      restoreOklch();
       setPdfLoading(false);
     }
   };
