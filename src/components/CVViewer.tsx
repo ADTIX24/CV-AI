@@ -421,7 +421,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
 
   // Browser-based dynamic OKLCH to RGB converter and CSS sanitizer to prevent html2canvas color parsing crashes on Tailwind CSS v4 variables
   const sanitizeOklchStyleSheets = () => {
-    const originalRulesMap = new Map<CSSStyleSheet, Array<{ index: number; originalText: string }>>();
+    const savedRules: Array<{ rule: CSSStyleRule; prop: string; originalVal: string }> = [];
     
     // Create dummy element to resolve oklch colors using the browser's built-in engine
     const dummy = document.createElement('div');
@@ -432,9 +432,47 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       try {
         dummy.style.color = '';
         dummy.style.color = oklchStr;
-        return window.getComputedStyle(dummy).color || 'rgb(0, 0, 0)';
+        const resolved = window.getComputedStyle(dummy).color;
+        if (resolved && (resolved.startsWith('rgb') || resolved.startsWith('rgba'))) {
+          return resolved;
+        }
+        return oklchStr;
       } catch (e) {
-        return 'rgb(0, 0, 0)';
+        return oklchStr;
+      }
+    };
+
+    const sanitizeOklchString = (str: string): string => {
+      if (!str || !str.includes('oklch')) return str;
+      return str.replace(/oklch\s*\([^)]+\)/g, (match) => {
+        return convertOklchToRgb(match);
+      });
+    };
+
+    const processRules = (rules: CSSRuleList) => {
+      for (let i = 0; i < rules.length; i++) {
+        const rule = rules[i];
+        try {
+          if (rule instanceof CSSStyleRule) {
+            const style = rule.style;
+            for (let j = 0; j < style.length; j++) {
+              const prop = style[j];
+              const val = style.getPropertyValue(prop);
+              if (val && val.includes('oklch')) {
+                const cleaned = sanitizeOklchString(val);
+                if (cleaned !== val) {
+                  savedRules.push({ rule, prop, originalVal: val });
+                  style.setProperty(prop, cleaned);
+                }
+              }
+            }
+          } else if ('cssRules' in rule) {
+            // Recurse into media queries, layers, support rules, etc.
+            processRules((rule as any).cssRules);
+          }
+        } catch (err) {
+          // Skip protected rules
+        }
       }
     };
 
@@ -443,34 +481,11 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     for (const sheet of sheetsToProcess) {
       try {
         const rules = sheet.cssRules || sheet.rules;
-        if (!rules) continue;
-
-        const savedRules: Array<{ index: number; originalText: string }> = [];
-
-        for (let i = 0; i < rules.length; i++) {
-          const rule = rules[i];
-          if (rule && rule.cssText && rule.cssText.includes('oklch')) {
-            const originalText = rule.cssText;
-            const updatedText = originalText.replace(/oklch\([^)]+\)/g, (match) => {
-              return convertOklchToRgb(match);
-            });
-
-            try {
-              // Save original for restoration
-              savedRules.push({ index: i, originalText });
-              sheet.deleteRule(i);
-              sheet.insertRule(updatedText, i);
-            } catch (err) {
-              console.warn("[CSS Sanitizer] Failed to replace rule at index:", i, err);
-            }
-          }
-        }
-
-        if (savedRules.length > 0) {
-          originalRulesMap.set(sheet, savedRules);
+        if (rules) {
+          processRules(rules);
         }
       } catch (e) {
-        console.warn("[CORS/Access CSS] Skipping stylesheet rules for sheet:", sheet.href, e);
+        // Skip cross-origin stylesheets that block access
       }
     }
 
@@ -481,16 +496,11 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
 
     // Return restore function
     return () => {
-      // Restore original rules in reverse order to maintain indices
-      for (const [sheet, savedRules] of originalRulesMap.entries()) {
-        for (let k = savedRules.length - 1; k >= 0; k--) {
-          const item = savedRules[k];
-          try {
-            sheet.deleteRule(item.index);
-            sheet.insertRule(item.originalText, item.index);
-          } catch (e) {
-            console.warn("[CSS Sanitizer Restore] Failed to restore rule:", item.originalText, e);
-          }
+      for (const item of savedRules) {
+        try {
+          item.rule.style.setProperty(item.prop, item.originalVal);
+        } catch (e) {
+          console.warn("[Restore] Failed to restore style property:", item.prop, e);
         }
       }
     };
@@ -773,6 +783,36 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
               htmlItem.style.setProperty('border-style', 'solid', 'important');
             }
           });
+
+          // Clean/convert any oklch in inline styles of the container and all of its children
+          const sanitizeElementOklch = (el: HTMLElement) => {
+            if (el.style) {
+              for (let j = 0; j < el.style.length; j++) {
+                const prop = el.style[j];
+                const val = el.style.getPropertyValue(prop);
+                if (val && val.includes('oklch')) {
+                  try {
+                    const tempEl = clonedDoc.createElement('div');
+                    tempEl.style.color = val;
+                    clonedDoc.body.appendChild(tempEl);
+                    const rgb = window.getComputedStyle(tempEl).color;
+                    clonedDoc.body.removeChild(tempEl);
+                    if (rgb && (rgb.startsWith('rgb') || rgb.startsWith('rgba'))) {
+                      el.style.setProperty(prop, rgb);
+                    } else {
+                      el.style.removeProperty(prop);
+                    }
+                  } catch (e) {
+                    el.style.removeProperty(prop);
+                  }
+                }
+              }
+            }
+          };
+
+          sanitizeElementOklch(element);
+          const allChilds = element.querySelectorAll('*');
+          allChilds.forEach((item) => sanitizeElementOklch(item as HTMLElement));
         }
       }
     };
@@ -1077,17 +1117,37 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
                   htmlItem.style.setProperty('border-style', 'solid', 'important');
                 }
 
-                // Remove oklch from any inline styles on cloned items
-                if (htmlItem.style) {
-                  for (let j = 0; j < htmlItem.style.length; j++) {
-                    const prop = htmlItem.style[j];
-                    const val = htmlItem.style.getPropertyValue(prop);
+              });
+
+              // Clean/convert any oklch in inline styles of the container and all of its children
+              const sanitizeElementOklch = (el: HTMLElement) => {
+                if (el.style) {
+                  for (let j = 0; j < el.style.length; j++) {
+                    const prop = el.style[j];
+                    const val = el.style.getPropertyValue(prop);
                     if (val && val.includes('oklch')) {
-                      htmlItem.style.removeProperty(prop);
+                      try {
+                        const tempEl = clonedDoc.createElement('div');
+                        tempEl.style.color = val;
+                        clonedDoc.body.appendChild(tempEl);
+                        const rgb = window.getComputedStyle(tempEl).color;
+                        clonedDoc.body.removeChild(tempEl);
+                        if (rgb && (rgb.startsWith('rgb') || rgb.startsWith('rgba'))) {
+                          el.style.setProperty(prop, rgb);
+                        } else {
+                          el.style.removeProperty(prop);
+                        }
+                      } catch (e) {
+                        el.style.removeProperty(prop);
+                      }
                     }
                   }
                 }
-              });
+              };
+
+              sanitizeElementOklch(clonedFace);
+              const allChilds = clonedFace.querySelectorAll('*');
+              allChilds.forEach((item) => sanitizeElementOklch(item as HTMLElement));
             }
           }
         },
