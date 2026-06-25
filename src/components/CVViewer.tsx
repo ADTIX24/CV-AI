@@ -558,7 +558,8 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         allowTaint: false,
         backgroundColor: '#ffffff',
         logging: false,
-        windowWidth: 1024,
+        windowWidth: 794,
+        windowHeight: 1123,
         onclone: (clonedDoc: Document) => {
           const warning = clonedDoc.getElementById('screenshot-protection-panel');
           if (warning) {
@@ -598,6 +599,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
             element.style.setProperty('height', '1123px', 'important');
             element.style.setProperty('min-height', '1123px', 'important');
             element.style.setProperty('max-height', '1123px', 'important');
+            element.style.setProperty('overflow', 'hidden', 'important');
             element.style.setProperty('box-shadow', 'none', 'important');
             element.style.setProperty('border-radius', '0px', 'important');
             element.style.setProperty('border', 'none', 'important');
@@ -886,7 +888,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       const opt = {
         margin: 0,
         filename: filename,
-        image: { type: 'jpeg' as const, quality: 0.98 },
+        image: { type: 'jpeg' as const, quality: 1.0 },
         html2canvas: { 
           scale: 2, // Ultra sharp text rendering
           useCORS: true,
@@ -894,7 +896,8 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
           allowTaint: false,
           backgroundColor: '#ffffff',
           logging: false,
-          windowWidth: 1024,
+          windowWidth: 794,
+          windowHeight: 1123,
           onclone: (clonedDoc: Document) => {
             // Hide watermark or protections if needed
             const warning = clonedDoc.getElementById('screenshot-protection-panel');
@@ -933,6 +936,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
               clonedFace.style.setProperty('height', '1123px', 'important');
               clonedFace.style.setProperty('min-height', '1123px', 'important');
               clonedFace.style.setProperty('max-height', '1123px', 'important');
+              clonedFace.style.setProperty('overflow', 'hidden', 'important');
               clonedFace.style.setProperty('box-shadow', 'none', 'important');
               clonedFace.style.setProperty('border-radius', '0px', 'important');
               clonedFace.style.setProperty('border', 'none', 'important');
@@ -1151,7 +1155,13 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
             }
           }
         },
-        jsPDF: { unit: 'px', format: [794, 1123] as [number, number], orientation: 'portrait' as const }
+        jsPDF: { 
+          unit: 'px', 
+          format: [794, 1123] as [number, number], 
+          orientation: 'portrait' as const,
+          compress: true
+        },
+        pagebreak: { mode: ['avoid-all'] as any }
       };
 
       // Import html2pdf.js dynamically to bypass SSR/bundling build errors
