@@ -688,6 +688,42 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     // Sanitize stylesheets to bypass OKLCH parsing issues temporarily
     const { sanitizeString, restore: restoreOklch } = sanitizeOklchStyleSheets();
 
+    // List to keep track of temporary style elements to remove after compilation
+    const tempStylesInMainDoc: HTMLStyleElement[] = [];
+
+    // Find and sanitize all stylesheets (except google fonts) and inject them as safe inline style elements
+    try {
+      Array.from(document.styleSheets).forEach((sheet) => {
+        try {
+          const href = sheet.href || '';
+          if (href && (href.includes('fonts.googleapis.com') || href.includes('fonts.gstatic.com'))) {
+            return; // Skip Google Fonts
+          }
+          
+          let cssText = '';
+          const rules = sheet.cssRules || sheet.rules;
+          if (rules) {
+            for (let i = 0; i < rules.length; i++) {
+              cssText += rules[i].cssText + '\n';
+            }
+          }
+          
+          if (cssText) {
+            const sanitized = sanitizeString(cssText);
+            const tempStyle = document.createElement('style');
+            tempStyle.setAttribute('data-sanitized-style', 'true');
+            tempStyle.textContent = sanitized;
+            document.head.appendChild(tempStyle);
+            tempStylesInMainDoc.push(tempStyle);
+          }
+        } catch (e) {
+          // Some sheets might be cross-origin or fail to read
+        }
+      });
+    } catch (e) {
+      console.warn("Could not inline sheet rules during preparation", e);
+    }
+
     // Dynamically override window.getComputedStyle on the main window to intercept color queries
     const originalGetComputedStyle = window.getComputedStyle;
     try {
@@ -726,6 +762,23 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         windowWidth: 794,
         windowHeight: 1123,
         onclone: (clonedDoc: Document) => {
+          // Remove same-origin CSS links that contain raw oklch rules in the cloned document so it doesn't fetch them and parse oklch again
+          try {
+            clonedDoc.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
+              const href = link.getAttribute('href') || '';
+              if (href && !href.includes('fonts.googleapis.com') && !href.includes('fonts.gstatic.com')) {
+                link.parentNode?.removeChild(link);
+              }
+            });
+
+            // Also remove any original unsanitized <style> tags in the cloned document
+            clonedDoc.querySelectorAll('style:not([data-sanitized-style="true"])').forEach(style => {
+              style.parentNode?.removeChild(style);
+            });
+          } catch (e) {
+            console.warn("Failed to sanitize cloned document head style/link tags", e);
+          }
+
           // Override cloned window's getComputedStyle too, since html2canvas uses it inside the cloned iframe!
           const clonedWindow = clonedDoc.defaultView;
           if (clonedWindow) {
@@ -1015,10 +1068,20 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       } finally {
         window.getComputedStyle = originalGetComputedStyle;
         restoreOklch();
+        tempStylesInMainDoc.forEach(style => {
+          if (style.parentNode) {
+            style.parentNode.removeChild(style);
+          }
+        });
       }
     } catch (err) {
       window.getComputedStyle = originalGetComputedStyle;
       restoreOklch();
+      tempStylesInMainDoc.forEach(style => {
+        if (style.parentNode) {
+          style.parentNode.removeChild(style);
+        }
+      });
       throw err;
     }
   };
@@ -1037,8 +1100,8 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       const sanitizedName = (profile.fullName || 'cv-professional').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
       const filename = `${sanitizedName || 'cv'}.pdf`;
 
-      // 1. Generate the single-page canvas at high quality (scale 2)
-      const canvas = await generateHighQualityCanvas(2);
+      // 1. Generate the single-page canvas at high quality (scale 3)
+      const canvas = await generateHighQualityCanvas(3);
       
       // 2. Convert to high-quality JPEG data URL
       const imgData = canvas.toDataURL('image/jpeg', 1.0);
