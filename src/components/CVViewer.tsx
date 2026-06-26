@@ -268,6 +268,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
   const [noCreditsError, setNoCreditsError] = useState(false);
   const [showAllTemplates, setShowAllTemplates] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [loadingType, setLoadingType] = useState<'pdf' | 'image' | 'docx' | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [compiledImage, setCompiledImage] = useState<string | null>(null);
   const [showDownloadHelper, setShowDownloadHelper] = useState<boolean>(false);
@@ -428,25 +429,162 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     dummy.style.display = 'none';
     document.body.appendChild(dummy);
 
+    // Set standard Tailwind v4 opacity variables so that they resolve correctly on the dummy element
+    try {
+      dummy.style.setProperty('--tw-text-opacity', '1');
+      dummy.style.setProperty('--tw-bg-opacity', '1');
+      dummy.style.setProperty('--tw-border-opacity', '1');
+      dummy.style.setProperty('--tw-opacity', '1');
+    } catch (e) {
+      console.warn("Failed to set dummy opacity variables", e);
+    }
+
+    const oklchToRgbMath = (L: number, C: number, H_deg: number, alpha: number = 1): string => {
+      // 1. Convert OKLCH to OKLab
+      const H_rad = (H_deg * Math.PI) / 180;
+      const a = C * Math.cos(H_rad);
+      const b = C * Math.sin(H_rad);
+
+      // 2. Convert OKLab to LMS
+      const l = L + 0.3963377774 * a + 0.2158037573 * b;
+      const m = L - 0.1055613458 * a - 0.0638541728 * b;
+      const s = L - 0.0894841775 * a - 1.2914855414 * b;
+
+      // 3. Cube LMS
+      const l3 = l * l * l;
+      const m3 = m * m * m;
+      const s3 = s * s * s;
+
+      // 4. Convert LMS cubed to linear sRGB
+      const r = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+      const g = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+      const b_ch = -0.0041960863 * l3 - 0.7034186145 * m3 + 1.7076147010 * s3;
+
+      // 5. Convert linear sRGB to standard sRGB
+      const transfer = (c: number): number => {
+        if (c <= 0.0031308) {
+          return 12.92 * c;
+        } else {
+          return 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+        }
+      };
+
+      const R = Math.max(0, Math.min(255, Math.round(transfer(r) * 255)));
+      const G = Math.max(0, Math.min(255, Math.round(transfer(g) * 255)));
+      const B = Math.max(0, Math.min(255, Math.round(transfer(b_ch) * 255)));
+
+      if (alpha === 1) {
+        return `rgb(${R}, ${G}, ${B})`;
+      } else {
+        return `rgba(${R}, ${G}, ${B}, ${alpha})`;
+      }
+    };
+
+    const parseOklchValues = (oklchStr: string): { L: number; C: number; H: number; alpha: number } | null => {
+      try {
+        // Strip oklch( and )
+        const clean = oklchStr.replace(/oklch\s*\(/i, '').replace(/\)$/, '').trim();
+        // Split by '/' to separate color values and opacity
+        const parts = clean.split('/');
+        const colorPart = parts[0].trim();
+        const opacityPart = parts[1] ? parts[1].trim() : null;
+
+        // Split color values by spaces (or commas)
+        const values = colorPart.split(/[\s,]+/).map(v => v.trim()).filter(Boolean);
+        if (values.length < 3) return null;
+
+        const L_val = values[0];
+        const C_val = values[1];
+        const H_val = values[2];
+
+        // Lightness can be percent e.g. 62.7%
+        const L = L_val.endsWith('%') ? parseFloat(L_val) / 100 : parseFloat(L_val);
+        const C = parseFloat(C_val);
+        // Hue can be in degrees or other units, usually degrees.
+        const H = parseFloat(H_val);
+
+        let alpha = 1;
+        if (opacityPart) {
+          // Opacity can be percent e.g. 50% or decimal e.g. 0.5
+          if (opacityPart.includes('var(')) {
+            alpha = 1; // Fallback for CSS variables
+          } else {
+            alpha = opacityPart.endsWith('%') ? parseFloat(opacityPart) / 100 : parseFloat(opacityPart);
+          }
+        }
+
+        if (isNaN(L) || isNaN(C) || isNaN(H)) return null;
+        return { L, C, H, alpha };
+      } catch (e) {
+        return null;
+      }
+    };
+
     const convertOklchToRgb = (oklchStr: string): string => {
       try {
+        // Layer 1: Browser-based resolution
         dummy.style.color = '';
         dummy.style.color = oklchStr;
         const resolved = window.getComputedStyle(dummy).color;
         if (resolved && (resolved.startsWith('rgb') || resolved.startsWith('rgba'))) {
           return resolved;
         }
-        return oklchStr;
+        
+        // Layer 2: Mathematical OKLCH -> sRGB fallback
+        const parsed = parseOklchValues(oklchStr);
+        if (parsed) {
+          return oklchToRgbMath(parsed.L, parsed.C, parsed.H, parsed.alpha);
+        }
+
+        // Layer 3: Hardcoded fallback to prevent any oklch string from crashing html2canvas
+        return 'rgb(100, 100, 100)';
       } catch (e) {
-        return oklchStr;
+        return 'rgb(100, 100, 100)';
       }
     };
 
     const sanitizeOklchString = (str: string): string => {
       if (!str || !str.includes('oklch')) return str;
-      return str.replace(/oklch\s*\([^)]+\)/g, (match) => {
-        return convertOklchToRgb(match);
-      });
+      
+      let index = 0;
+      let count = 0;
+      // To prevent any potential infinite loop, we set a safety limit
+      while (count < 200) {
+        count++;
+        const start = str.indexOf('oklch', index);
+        if (start === -1) break;
+        
+        // Find the opening parenthesis
+        const openParen = str.indexOf('(', start);
+        if (openParen === -1) {
+          index = start + 5;
+          continue;
+        }
+        
+        // Find the matching closing parenthesis
+        let parenCount = 1;
+        let pos = openParen + 1;
+        while (pos < str.length && parenCount > 0) {
+          if (str[pos] === '(') {
+            parenCount++;
+          } else if (str[pos] === ')') {
+            parenCount--;
+          }
+          pos++;
+        }
+        
+        if (parenCount === 0) {
+          // Found a complete balanced oklch(...) block from start to pos
+          const fullMatch = str.substring(start, pos);
+          const resolved = convertOklchToRgb(fullMatch);
+          str = str.substring(0, start) + resolved + str.substring(pos);
+          // Update index to scan from the end of the replaced portion
+          index = start + resolved.length;
+        } else {
+          index = start + 5;
+        }
+      }
+      return str;
     };
 
     const processRules = (rules: CSSRuleList) => {
@@ -825,10 +963,12 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
   };
 
   const downloadAsPDF = async () => {
+    setLoadingType('pdf');
     setPdfLoading(true);
     const element = document.getElementById('cv-preview-a4') || document.getElementById('cv-rendered-document-face');
     if (!element) {
       setPdfLoading(false);
+      setLoadingType(null);
       return;
     }
 
@@ -867,10 +1007,12 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       window.print();
     } finally {
       setPdfLoading(false);
+      setLoadingType(null);
     }
   };
 
   const downloadAsImage = async () => {
+    setLoadingType('image');
     setPdfLoading(true);
 
     const scaleLevels = [2, 1.5, 1];
@@ -922,6 +1064,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     }
 
     setPdfLoading(false);
+    setLoadingType(null);
 
     if (!success) {
       console.error("All Image generation options failed:", lastError);
@@ -1748,14 +1891,20 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
               overflow: 'hidden'
             }}
           >
-        {/* PDF Rendering Premium Loader */}
+        {/* Export Rendering Premium Loader */}
         {pdfLoading && (
           <div className="absolute inset-0 bg-white/90 z-50 flex flex-col items-center justify-center gap-4 cursor-wait font-sans select-none animate-fade-in rounded-2xl">
             <div className="w-12 h-12 border-4 border-violet-600 border-t-transparent rounded-full animate-spin"></div>
             <div className="text-zinc-900 font-bold text-base text-center px-4 animate-pulse">
-              {lang === 'ar' 
-                ? '✦ جاري تصدير وتوليد ملف المستند الـ PDF بدقة هاتف عالية... يرجى الانتظار ثانية واحدة !' 
-                : '✦ Capturing high-fidelity mobile-optimized PDF document... Please wait a second!'}
+              {loadingType === 'image' ? (
+                lang === 'ar' 
+                  ? '✦ جاري تصدير وتوليد ملف الصورة بدقة عالية... يرجى الانتظار ثانية واحدة !' 
+                  : '✦ Capturing high-fidelity mobile-optimized Image... Please wait a second!'
+              ) : (
+                lang === 'ar' 
+                  ? '✦ جاري تصدير وتوليد ملف المستند الـ PDF بدقة هاتف عالية... يرجى الانتظار ثانية واحدة !' 
+                  : '✦ Capturing high-fidelity mobile-optimized PDF document... Please wait a second!'
+              )}
             </div>
           </div>
         )}
