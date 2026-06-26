@@ -244,6 +244,9 @@ export async function exportToPNG(elementId?: string): Promise<string> {
     throw new Error("Preview element not found");
   }
 
+  // Detect the actual direction (rtl for Arabic, ltr for English) of the target element
+  const currentDir = originalElement.getAttribute('dir') || window.getComputedStyle(originalElement).direction || 'rtl';
+
   // 1. Create a completely isolated, hidden virtual iframe
   const iframe = document.createElement('iframe');
   iframe.style.position = 'fixed';
@@ -269,7 +272,7 @@ export async function exportToPNG(elementId?: string): Promise<string> {
   iframeDoc.open();
   iframeDoc.write(`
     <!DOCTYPE html>
-    <html>
+    <html dir="${currentDir}" lang="${currentDir === 'rtl' ? 'ar' : 'en'}">
       <head>
         <meta charset="UTF-8">
         ${stylesHtml}
@@ -282,6 +285,8 @@ export async function exportToPNG(elementId?: string): Promise<string> {
             width: 794px; 
             height: 1123px; 
             overflow: hidden; 
+            direction: ${currentDir} !important;
+            text-align: ${currentDir === 'rtl' ? 'right' : 'left'} !important;
           }
           #cv-preview-a4, #cv-container, #cv-wrapper, #cv-rendered-document-face {
             width: 794px !important;
@@ -299,14 +304,24 @@ export async function exportToPNG(elementId?: string): Promise<string> {
           }
         </style>
       </head>
-      <body>
-        <div id="cv-preview-a4">
+      <body dir="${currentDir}">
+        <div id="cv-preview-a4" dir="${currentDir}">
           ${originalElement.innerHTML}
         </div>
       </body>
     </html>
   `);
   iframeDoc.close();
+
+  // Apply attributes dynamically to enforce the rendering engine to align properly
+  if (iframeDoc.documentElement) {
+    iframeDoc.documentElement.setAttribute('dir', currentDir);
+  }
+  if (iframeDoc.body) {
+    iframeDoc.body.setAttribute('dir', currentDir);
+    iframeDoc.body.style.direction = currentDir;
+    iframeDoc.body.style.textAlign = currentDir === 'rtl' ? 'right' : 'left';
+  }
 
   try {
     // Wait for fonts and complete DOM painting inside the new environment
