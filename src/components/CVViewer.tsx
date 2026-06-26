@@ -688,6 +688,34 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     // Sanitize stylesheets to bypass OKLCH parsing issues temporarily
     const { sanitizeString, restore: restoreOklch } = sanitizeOklchStyleSheets();
 
+    // Dynamically override window.getComputedStyle on the main window to intercept color queries
+    const originalGetComputedStyle = window.getComputedStyle;
+    try {
+      window.getComputedStyle = function (elt: Element, pseudoElt?: string | null) {
+        const style = originalGetComputedStyle.call(window, elt, pseudoElt);
+        return new Proxy(style, {
+          get(target, prop, receiver) {
+            const val = Reflect.get(target, prop, receiver);
+            if (typeof val === 'string' && val.includes('oklch')) {
+              return sanitizeString(val);
+            }
+            if (typeof val === 'function') {
+              return function (...args: any[]) {
+                const res = val.apply(target, args);
+                if (typeof res === 'string' && res.includes('oklch')) {
+                  return sanitizeString(res);
+                }
+                return res;
+              };
+            }
+            return val;
+          }
+        }) as unknown as CSSStyleDeclaration;
+      };
+    } catch (e) {
+      console.warn("Failed to override window.getComputedStyle", e);
+    }
+
     try {
       const options = {
         scale: scaleVal,
@@ -698,6 +726,37 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         windowWidth: 794,
         windowHeight: 1123,
         onclone: (clonedDoc: Document) => {
+          // Override cloned window's getComputedStyle too, since html2canvas uses it inside the cloned iframe!
+          const clonedWindow = clonedDoc.defaultView;
+          if (clonedWindow) {
+            try {
+              const originalClonedGetComputedStyle = clonedWindow.getComputedStyle;
+              clonedWindow.getComputedStyle = function (elt: Element, pseudoElt?: string | null) {
+                const style = originalClonedGetComputedStyle.call(clonedWindow, elt, pseudoElt);
+                return new Proxy(style, {
+                  get(target, prop, receiver) {
+                    const val = Reflect.get(target, prop, receiver);
+                    if (typeof val === 'string' && val.includes('oklch')) {
+                      return sanitizeString(val);
+                    }
+                    if (typeof val === 'function') {
+                      return function (...args: any[]) {
+                        const res = val.apply(target, args);
+                        if (typeof res === 'string' && res.includes('oklch')) {
+                          return sanitizeString(res);
+                        }
+                        return res;
+                      };
+                    }
+                    return val;
+                  }
+                }) as unknown as CSSStyleDeclaration;
+              };
+            } catch (e) {
+              console.warn("Failed to override cloned window getComputedStyle", e);
+            }
+          }
+
           const warning = clonedDoc.getElementById('screenshot-protection-panel');
           if (warning) {
             warning.style.setProperty('display', 'none', 'important');
@@ -954,9 +1013,11 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       try {
         return await html2canvas(documentElement, options);
       } finally {
+        window.getComputedStyle = originalGetComputedStyle;
         restoreOklch();
       }
     } catch (err) {
+      window.getComputedStyle = originalGetComputedStyle;
       restoreOklch();
       throw err;
     }
