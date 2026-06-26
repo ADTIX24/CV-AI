@@ -311,8 +311,8 @@ export async function exportToPDF(elementId?: string): Promise<Blob> {
     img.src = dataUrl;
   });
 
-  const pdfWidth = width / 3;
-  const pdfHeight = height / 3;
+  const pdfWidth = width;
+  const pdfHeight = height;
 
   // Initialize jsPDF with exact matching size to guarantee a single-page output without extra pages
   const pdf = new jsPDF({

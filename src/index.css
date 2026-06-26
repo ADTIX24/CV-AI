@@ -68,6 +68,11 @@ body {
   animation: logoShimmer 3s linear infinite, logoColorShift 6s ease-in-out infinite, pulseGlow 4s ease-in-out infinite;
 }
 
+#cv-preview-a4 {
+  max-width: none !important;
+  overflow: visible !important;
+}
+
 /* 
   PROFESSIONAL PRINT MEDIA QUERIES:
   Ensures that if the user downloads or prints, ONLY the white A4 CV container (#cv-preview-a4) 
