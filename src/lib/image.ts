@@ -251,25 +251,22 @@ export async function exportToPNG(elementId?: string): Promise<string> {
   await new Promise(resolve => setTimeout(resolve, 350));
 
   return withSanitizedStyles(element as HTMLElement, async () => {
-    // Determine exact layout size of the element (offsetWidth/offsetHeight)
-    const width = (element as HTMLElement).offsetWidth || 794;
-    const height = (element as HTMLElement).offsetHeight || 1123;
-
-    // Get the real viewport offset of the element to cancel any transform/container shifting
-    const rect = (element as HTMLElement).getBoundingClientRect();
-    const offsetX = rect.left;
-    const offsetY = rect.top;
-
-    // Generate high resolution by adjusting pixelRatio to 3 (perfect clarity)
+    // Generate high resolution by adjusting pixelRatio to 2 (excellent quality, safe for mobile)
     const dataUrl = await htmlToImage.toPng(element as HTMLElement, {
-      width: width,
-      height: height,
+      width: 794,
+      height: 1123,
       quality: 1.0,
-      pixelRatio: 3,
+      pixelRatio: 2,
+      cacheBust: true,
       backgroundColor: '#ffffff',
       style: {
-        transform: `translate(${-offsetX}px, ${-offsetY}px)`,
+        transform: 'scale(1)',
         transformOrigin: 'top left',
+        margin: '0',
+        padding: '0',
+        position: 'relative',
+        left: '0',
+        top: '0',
         maxWidth: 'none',
         overflow: 'visible'
       }
@@ -293,33 +290,15 @@ export async function exportToPDF(elementId?: string): Promise<Blob> {
   // Generate crisp PNG image first
   const dataUrl = await exportToPNG(elementId);
 
-  // Get exact image dimensions from the loaded image to ensure 100% accurate PDF mapping
-  const { width, height } = await new Promise<{ width: number; height: number }>((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      resolve({ width: img.width, height: img.height });
-    };
-    img.onerror = () => {
-      // Fallback to offset dimensions if load fails
-      const offsetW = (element as HTMLElement).offsetWidth || 794;
-      const offsetH = (element as HTMLElement).offsetHeight || 1123;
-      resolve({
-        width: offsetW * 3,
-        height: offsetH * 3
-      });
-    };
-    img.src = dataUrl;
-  });
-
   // Initialize jsPDF with exact matching size to guarantee a single-page output without extra pages
   const pdf = new jsPDF({
-    orientation: width > height ? 'l' : 'p',
+    orientation: 'p',
     unit: 'px',
-    format: [width, height],
+    format: [794, 1123],
     compress: true
   });
 
-  pdf.addImage(dataUrl, 'PNG', 0, 0, width, height, undefined, 'FAST');
+  pdf.addImage(dataUrl, 'PNG', 0, 0, 794, 1123, undefined, 'FAST');
   return pdf.output('blob');
 }
 
