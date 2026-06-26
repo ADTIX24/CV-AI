@@ -263,7 +263,10 @@ export async function exportToPNG(elementId?: string): Promise<string> {
       pixelRatio: 3,
       backgroundColor: '#ffffff',
       style: {
-        transform: 'none',
+        transform: 'scale(1)',
+        transformOrigin: 'top left',
+        maxWidth: 'none',
+        overflow: 'visible',
         margin: '0',
         padding: '0',
         position: 'relative',
@@ -290,20 +293,36 @@ export async function exportToPDF(elementId?: string): Promise<Blob> {
   // Generate crisp PNG image first
   const dataUrl = await exportToPNG(elementId);
 
-  // Determine exact layout size of the element (offsetWidth/offsetHeight)
-  // to avoid transform:scale alterations on small screens/mobiles.
-  const width = (element as HTMLElement).offsetWidth || 794;
-  const height = (element as HTMLElement).offsetHeight || 1123;
+  // Get exact image dimensions from the loaded image to ensure 100% accurate PDF mapping
+  const { width, height } = await new Promise<{ width: number; height: number }>((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      resolve({ width: img.width, height: img.height });
+    };
+    img.onerror = () => {
+      // Fallback to offset dimensions if load fails
+      const offsetW = (element as HTMLElement).offsetWidth || 794;
+      const offsetH = (element as HTMLElement).offsetHeight || 1123;
+      resolve({
+        width: offsetW * 3,
+        height: offsetH * 3
+      });
+    };
+    img.src = dataUrl;
+  });
+
+  const pdfWidth = width / 3;
+  const pdfHeight = height / 3;
 
   // Initialize jsPDF with exact matching size to guarantee a single-page output without extra pages
   const pdf = new jsPDF({
-    orientation: width > height ? 'landscape' : 'portrait',
+    orientation: pdfWidth > pdfHeight ? 'landscape' : 'portrait',
     unit: 'px',
-    format: [width, height],
+    format: [pdfWidth, pdfHeight],
     compress: true
   });
 
-  pdf.addImage(dataUrl, 'PNG', 0, 0, width, height, undefined, 'FAST');
+  pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
   return pdf.output('blob');
 }
 
