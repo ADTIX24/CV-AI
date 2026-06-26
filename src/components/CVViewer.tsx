@@ -420,227 +420,87 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     }
   };
 
-  // Browser-based dynamic OKLCH to RGB converter and CSS sanitizer to prevent html2canvas color parsing crashes on Tailwind CSS v4 variables
-  const sanitizeOklchStyleSheets = () => {
-    const savedRules: Array<{ rule: CSSStyleRule; originalCssText: string }> = [];
+  // Pure mathematical OKLCH to RGB/RGBA string converter to bypass html2canvas crashes on Tailwind v4 values
+  const convertPureOklchToRgb = (oklchStr: string): string => {
+    if (!oklchStr || !oklchStr.includes('oklch')) return oklchStr;
     
-    // Create dummy element to resolve oklch colors using the browser's built-in engine
-    const dummy = document.createElement('div');
-    dummy.style.display = 'none';
-    document.body.appendChild(dummy);
-
-    // Set standard Tailwind v4 opacity variables so that they resolve correctly on the dummy element
     try {
-      dummy.style.setProperty('--tw-text-opacity', '1');
-      dummy.style.setProperty('--tw-bg-opacity', '1');
-      dummy.style.setProperty('--tw-border-opacity', '1');
-      dummy.style.setProperty('--tw-opacity', '1');
-    } catch (e) {
-      console.warn("Failed to set dummy opacity variables", e);
-    }
+      return oklchStr.replace(/oklch\s*\(([^)]+)\)/gi, (match, content) => {
+        try {
+          const parts = content.split('/');
+          const colorPart = parts[0].trim();
+          const opacityPart = parts[1] ? parts[1].trim() : null;
 
-    const oklchToRgbMath = (L: number, C: number, H_deg: number, alpha: number = 1): string => {
-      // 1. Convert OKLCH to OKLab
-      const H_rad = (H_deg * Math.PI) / 180;
-      const a = C * Math.cos(H_rad);
-      const b = C * Math.sin(H_rad);
+          const values = colorPart.split(/[\s,]+/).map(v => v.trim()).filter(Boolean);
+          if (values.length < 3) return match;
 
-      // 2. Convert OKLab to LMS
-      const l = L + 0.3963377774 * a + 0.2158037573 * b;
-      const m = L - 0.1055613458 * a - 0.0638541728 * b;
-      const s = L - 0.0894841775 * a - 1.2914855414 * b;
+          const L_val = values[0];
+          const C_val = values[1];
+          const H_val = values[2];
 
-      // 3. Cube LMS
-      const l3 = l * l * l;
-      const m3 = m * m * m;
-      const s3 = s * s * s;
+          const L = L_val.endsWith('%') ? parseFloat(L_val) / 100 : parseFloat(L_val);
+          const C = parseFloat(C_val);
+          
+          let H = parseFloat(H_val);
+          if (H_val.endsWith('rad')) {
+            H = H * (180 / Math.PI);
+          } else if (H_val.endsWith('turn')) {
+            H = H * 360;
+          } else if (H_val.endsWith('grad')) {
+            H = H * 0.9;
+          }
 
-      // 4. Convert LMS cubed to linear sRGB
-      const r = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
-      const g = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
-      const b_ch = -0.0041960863 * l3 - 0.7034186145 * m3 + 1.7076147010 * s3;
-
-      // 5. Convert linear sRGB to standard sRGB
-      const transfer = (c: number): number => {
-        if (c <= 0.0031308) {
-          return 12.92 * c;
-        } else {
-          return 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
-        }
-      };
-
-      const R = Math.max(0, Math.min(255, Math.round(transfer(r) * 255)));
-      const G = Math.max(0, Math.min(255, Math.round(transfer(g) * 255)));
-      const B = Math.max(0, Math.min(255, Math.round(transfer(b_ch) * 255)));
-
-      if (alpha === 1) {
-        return `rgb(${R}, ${G}, ${B})`;
-      } else {
-        return `rgba(${R}, ${G}, ${B}, ${alpha})`;
-      }
-    };
-
-    const parseOklchValues = (oklchStr: string): { L: number; C: number; H: number; alpha: number } | null => {
-      try {
-        // Strip oklch( and )
-        const clean = oklchStr.replace(/oklch\s*\(/i, '').replace(/\)$/, '').trim();
-        // Split by '/' to separate color values and opacity
-        const parts = clean.split('/');
-        const colorPart = parts[0].trim();
-        const opacityPart = parts[1] ? parts[1].trim() : null;
-
-        // Split color values by spaces (or commas)
-        const values = colorPart.split(/[\s,]+/).map(v => v.trim()).filter(Boolean);
-        if (values.length < 3) return null;
-
-        const L_val = values[0];
-        const C_val = values[1];
-        const H_val = values[2];
-
-        // Lightness can be percent e.g. 62.7%
-        const L = L_val.endsWith('%') ? parseFloat(L_val) / 100 : parseFloat(L_val);
-        const C = parseFloat(C_val);
-        // Hue can be in degrees or other units, usually degrees.
-        const H = parseFloat(H_val);
-
-        let alpha = 1;
-        if (opacityPart) {
-          // Opacity can be percent e.g. 50% or decimal e.g. 0.5
-          if (opacityPart.includes('var(')) {
-            alpha = 1; // Fallback for CSS variables
-          } else {
+          let alpha = 1;
+          if (opacityPart) {
             alpha = opacityPart.endsWith('%') ? parseFloat(opacityPart) / 100 : parseFloat(opacityPart);
           }
-        }
 
-        if (isNaN(L) || isNaN(C) || isNaN(H)) return null;
-        return { L, C, H, alpha };
-      } catch (e) {
-        return null;
-      }
-    };
-
-    const convertOklchToRgb = (oklchStr: string): string => {
-      try {
-        // Layer 1: Browser-based resolution
-        dummy.style.color = '';
-        dummy.style.color = oklchStr;
-        const resolved = window.getComputedStyle(dummy).color;
-        if (resolved && (resolved.startsWith('rgb') || resolved.startsWith('rgba'))) {
-          return resolved;
-        }
-        
-        // Layer 2: Mathematical OKLCH -> sRGB fallback
-        const parsed = parseOklchValues(oklchStr);
-        if (parsed) {
-          return oklchToRgbMath(parsed.L, parsed.C, parsed.H, parsed.alpha);
-        }
-
-        // Layer 3: Hardcoded fallback to prevent any oklch string from crashing html2canvas
-        return 'rgb(100, 100, 100)';
-      } catch (e) {
-        return 'rgb(100, 100, 100)';
-      }
-    };
-
-    const sanitizeOklchString = (str: string): string => {
-      if (!str || !str.includes('oklch')) return str;
-      
-      let index = 0;
-      let count = 0;
-      // To prevent any potential infinite loop, we set a safety limit
-      while (count < 200) {
-        count++;
-        const start = str.indexOf('oklch', index);
-        if (start === -1) break;
-        
-        // Find the opening parenthesis
-        const openParen = str.indexOf('(', start);
-        if (openParen === -1) {
-          index = start + 5;
-          continue;
-        }
-        
-        // Find the matching closing parenthesis
-        let parenCount = 1;
-        let pos = openParen + 1;
-        while (pos < str.length && parenCount > 0) {
-          if (str[pos] === '(') {
-            parenCount++;
-          } else if (str[pos] === ')') {
-            parenCount--;
+          if (isNaN(L) || isNaN(C) || isNaN(H) || isNaN(alpha)) {
+            return match;
           }
-          pos++;
-        }
-        
-        if (parenCount === 0) {
-          // Found a complete balanced oklch(...) block from start to pos
-          const fullMatch = str.substring(start, pos);
-          const resolved = convertOklchToRgb(fullMatch);
-          str = str.substring(0, start) + resolved + str.substring(pos);
-          // Update index to scan from the end of the replaced portion
-          index = start + resolved.length;
-        } else {
-          index = start + 5;
-        }
-      }
-      return str;
-    };
 
-    const processRules = (rules: CSSRuleList) => {
-      for (let i = 0; i < rules.length; i++) {
-        const rule = rules[i];
-        try {
-          if (rule instanceof CSSStyleRule) {
-            const css = rule.style.cssText;
-            if (css && css.includes('oklch')) {
-              const cleaned = sanitizeOklchString(css);
-              if (cleaned !== css) {
-                savedRules.push({ rule, originalCssText: css });
-                rule.style.cssText = cleaned;
-              }
-            }
-          } else if ('cssRules' in rule) {
-            // Recurse into media queries, layers, support rules, etc.
-            processRules((rule as any).cssRules);
+          // 1. Convert OKLCH to OKLab
+          const H_rad = (H * Math.PI) / 180;
+          const a = C * Math.cos(H_rad);
+          const b = C * Math.sin(H_rad);
+
+          // 2. Convert OKLab to LMS
+          const l_lms = L + 0.3963377774 * a + 0.2158037573 * b;
+          const m_lms = L - 0.1055613458 * a - 0.0638541728 * b;
+          const s_lms = L - 0.0894841775 * a - 1.2914855414 * b;
+
+          // 3. Cube LMS
+          const l3 = l_lms * l_lms * l_lms;
+          const m3 = m_lms * m_lms * m_lms;
+          const s3 = s_lms * s_lms * s_lms;
+
+          // 4. Convert LMS cubed to linear sRGB
+          const r_lin = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+          const g_lin = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+          const b_lin = -0.0041960863 * l3 - 0.7034186145 * m3 + 1.7076147010 * s3;
+
+          // 5. Convert linear sRGB to standard sRGB
+          const transfer = (c: number): number => {
+            if (c <= 0.0031308) return 12.92 * c;
+            return 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+          };
+
+          const R = Math.max(0, Math.min(255, Math.round(transfer(r_lin) * 255)));
+          const G = Math.max(0, Math.min(255, Math.round(transfer(g_lin) * 255)));
+          const B = Math.max(0, Math.min(255, Math.round(transfer(b_lin) * 255)));
+
+          if (alpha === 1) {
+            return `rgb(${R}, ${G}, ${B})`;
+          } else {
+            return `rgba(${R}, ${G}, ${B}, ${alpha})`;
           }
         } catch (err) {
-          // Skip protected rules
+          return match;
         }
-      }
-    };
-
-    const sheetsToProcess = Array.from(document.styleSheets);
-
-    for (const sheet of sheetsToProcess) {
-      try {
-        const rules = sheet.cssRules || sheet.rules;
-        if (rules) {
-          processRules(rules);
-        }
-      } catch (e) {
-        // Skip cross-origin stylesheets that block access
-      }
+      });
+    } catch (e) {
+      return oklchStr;
     }
-
-    // Cleanup dummy
-    if (dummy.parentNode) {
-      dummy.parentNode.removeChild(dummy);
-    }
-
-    // Return restore function and helper
-    return {
-      sanitizeString: sanitizeOklchString,
-      restore: () => {
-        for (const item of savedRules) {
-          try {
-            item.rule.style.cssText = item.originalCssText;
-          } catch (e) {
-            console.warn("[Restore] Failed to restore CSS style rule:", e);
-          }
-        }
-      }
-    };
   };
 
   const generateHighQualityCanvas = async (scaleVal: number): Promise<HTMLCanvasElement> => {
@@ -685,46 +545,7 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
       console.warn("Some images could not be pre-resolved", e);
     }
 
-    // Sanitize stylesheets to bypass OKLCH parsing issues temporarily
-    const { sanitizeString, restore: restoreOklch } = sanitizeOklchStyleSheets();
-
-    // List to keep track of temporary style elements to remove after compilation
-    const tempStylesInMainDoc: HTMLStyleElement[] = [];
-
-    // Find and sanitize all stylesheets (except google fonts) and inject them as safe inline style elements
-    try {
-      Array.from(document.styleSheets).forEach((sheet) => {
-        try {
-          const href = sheet.href || '';
-          if (href && (href.includes('fonts.googleapis.com') || href.includes('fonts.gstatic.com'))) {
-            return; // Skip Google Fonts
-          }
-          
-          let cssText = '';
-          const rules = sheet.cssRules || sheet.rules;
-          if (rules) {
-            for (let i = 0; i < rules.length; i++) {
-              cssText += rules[i].cssText + '\n';
-            }
-          }
-          
-          if (cssText) {
-            const sanitized = sanitizeString(cssText);
-            const tempStyle = document.createElement('style');
-            tempStyle.setAttribute('data-sanitized-style', 'true');
-            tempStyle.textContent = sanitized;
-            document.head.appendChild(tempStyle);
-            tempStylesInMainDoc.push(tempStyle);
-          }
-        } catch (e) {
-          // Some sheets might be cross-origin or fail to read
-        }
-      });
-    } catch (e) {
-      console.warn("Could not inline sheet rules during preparation", e);
-    }
-
-    // Dynamically override window.getComputedStyle on the main window to intercept color queries
+    // Dynamically override window.getComputedStyle on the main window to intercept color queries and convert oklch colors mathematically
     const originalGetComputedStyle = window.getComputedStyle;
     try {
       window.getComputedStyle = function (elt: Element, pseudoElt?: string | null) {
@@ -733,13 +554,13 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
           get(target, prop, receiver) {
             const val = Reflect.get(target, prop, receiver);
             if (typeof val === 'string' && val.includes('oklch')) {
-              return sanitizeString(val);
+              return convertPureOklchToRgb(val);
             }
             if (typeof val === 'function') {
               return function (...args: any[]) {
                 const res = val.apply(target, args);
                 if (typeof res === 'string' && res.includes('oklch')) {
-                  return sanitizeString(res);
+                  return convertPureOklchToRgb(res);
                 }
                 return res;
               };
@@ -762,24 +583,30 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
         windowWidth: 794,
         windowHeight: 1123,
         onclone: (clonedDoc: Document) => {
-          // Remove same-origin CSS links that contain raw oklch rules in the cloned document so it doesn't fetch them and parse oklch again
+          // 1. Sanitize all stylesheet style tags inside the cloned document so html2canvas never sees oklch
           try {
-            clonedDoc.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
-              const href = link.getAttribute('href') || '';
-              if (href && !href.includes('fonts.googleapis.com') && !href.includes('fonts.gstatic.com')) {
-                link.parentNode?.removeChild(link);
+            clonedDoc.querySelectorAll('style').forEach(style => {
+              if (style.textContent && style.textContent.includes('oklch')) {
+                style.textContent = convertPureOklchToRgb(style.textContent);
               }
             });
-
-            // Also remove any original unsanitized <style> tags in the cloned document
-            clonedDoc.querySelectorAll('style:not([data-sanitized-style="true"])').forEach(style => {
-              style.parentNode?.removeChild(style);
-            });
           } catch (e) {
-            console.warn("Failed to sanitize cloned document head style/link tags", e);
+            console.warn("Failed to sanitize cloned document style tags", e);
           }
 
-          // Override cloned window's getComputedStyle too, since html2canvas uses it inside the cloned iframe!
+          // 2. Sanitize element inline styles in cloned document
+          try {
+            clonedDoc.querySelectorAll('*').forEach((el) => {
+              const htmlEl = el as HTMLElement;
+              if (htmlEl.style && htmlEl.style.cssText && htmlEl.style.cssText.includes('oklch')) {
+                htmlEl.style.cssText = convertPureOklchToRgb(htmlEl.style.cssText);
+              }
+            });
+          } catch (e) {
+            console.warn("Failed to sanitize inline styles in cloned document", e);
+          }
+
+          // 3. Override cloned window's getComputedStyle too, since html2canvas uses it inside the cloned iframe!
           const clonedWindow = clonedDoc.defaultView;
           if (clonedWindow) {
             try {
@@ -790,13 +617,13 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
                   get(target, prop, receiver) {
                     const val = Reflect.get(target, prop, receiver);
                     if (typeof val === 'string' && val.includes('oklch')) {
-                      return sanitizeString(val);
+                      return convertPureOklchToRgb(val);
                     }
                     if (typeof val === 'function') {
                       return function (...args: any[]) {
                         const res = val.apply(target, args);
                         if (typeof res === 'string' && res.includes('oklch')) {
-                          return sanitizeString(res);
+                          return convertPureOklchToRgb(res);
                         }
                         return res;
                       };
@@ -860,228 +687,190 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
               if (!classes) return;
 
               // Handle display overrides first: e.g. "hidden md:block", "hidden md:flex", "block md:hidden"
-            if (classes.includes('hidden') && (classes.includes('md:block') || classes.includes('md:flex') || classes.includes('md:grid'))) {
-              if (classes.includes('md:flex')) {
-                htmlItem.style.setProperty('display', 'flex', 'important');
-              } else if (classes.includes('md:grid')) {
+              if (classes.includes('hidden') && (classes.includes('md:block') || classes.includes('md:flex') || classes.includes('md:grid'))) {
+                if (classes.includes('md:flex')) {
+                  htmlItem.style.setProperty('display', 'flex', 'important');
+                } else if (classes.includes('md:grid')) {
+                  htmlItem.style.setProperty('display', 'grid', 'important');
+                } else {
+                  htmlItem.style.setProperty('display', 'block', 'important');
+                }
+              }
+              if ((classes.includes('block') || classes.includes('flex') || classes.includes('grid')) && classes.includes('md:hidden')) {
+                htmlItem.style.setProperty('display', 'none', 'important');
+              }
+
+              // Handle order overrides
+              const orderMatch = classes.match(/md:order-(\d+|first|last)/);
+              if (orderMatch && orderMatch[1]) {
+                const val = orderMatch[1];
+                let orderStyle = val;
+                if (val === 'first') orderStyle = '-9999';
+                if (val === 'last') orderStyle = '9999';
+                htmlItem.style.setProperty('order', orderStyle, 'important');
+              }
+
+              // Handle grid column template: e.g. md:grid-cols-12
+              const gridColsMatch = classes.match(/md:grid-cols-(\d+)/);
+              if (gridColsMatch && gridColsMatch[1]) {
                 htmlItem.style.setProperty('display', 'grid', 'important');
-              } else {
-                htmlItem.style.setProperty('display', 'block', 'important');
+                htmlItem.style.setProperty('grid-template-columns', `repeat(${gridColsMatch[1]}, minmax(0, 1fr))`, 'important');
               }
-            }
-            if ((classes.includes('block') || classes.includes('flex') || classes.includes('grid')) && classes.includes('md:hidden')) {
-              htmlItem.style.setProperty('display', 'none', 'important');
-            }
 
-            // Handle order overrides: e.g. md:order-1, md:order-2, md:order-first, md:order-last
-            const orderMatch = classes.match(/md:order-(\d+|first|last)/);
-            if (orderMatch && orderMatch[1]) {
-              const val = orderMatch[1];
-              let orderStyle = val;
-              if (val === 'first') orderStyle = '-9999';
-              if (val === 'last') orderStyle = '9999';
-              htmlItem.style.setProperty('order', orderStyle, 'important');
-            }
-
-            // Handle grid column template template: e.g. md:grid-cols-12
-            const gridColsMatch = classes.match(/md:grid-cols-(\d+)/);
-            if (gridColsMatch && gridColsMatch[1]) {
-              htmlItem.style.setProperty('display', 'grid', 'important');
-              htmlItem.style.setProperty('grid-template-columns', `repeat(${gridColsMatch[1]}, minmax(0, 1fr))`, 'important');
-            }
-
-            // Handle grid column span: e.g. md:col-span-8
-            const colSpanMatch = classes.match(/md:col-span-(\d+)/);
-            if (colSpanMatch && colSpanMatch[1]) {
-              htmlItem.style.setProperty('grid-column', `span ${colSpanMatch[1]} / span ${colSpanMatch[1]}`, 'important');
-            }
-
-            // Handle position relative/absolute: e.g. md:relative, md:absolute
-            if (classes.includes('md:absolute')) {
-              htmlItem.style.setProperty('position', 'absolute', 'important');
-            } else if (classes.includes('md:relative')) {
-              htmlItem.style.setProperty('position', 'relative', 'important');
-            }
-
-            // Handle flex directions: e.g. md:flex-row, md:flex-col
-            if (classes.includes('md:flex-row')) {
-              htmlItem.style.setProperty('display', 'flex', 'important');
-              htmlItem.style.setProperty('flex-direction', 'row', 'important');
-            } else if (classes.includes('md:flex-col')) {
-              htmlItem.style.setProperty('display', 'flex', 'important');
-              htmlItem.style.setProperty('flex-direction', 'column', 'important');
-            }
-
-            // Handle text alignments
-            if (classes.includes('md:text-left')) {
-              htmlItem.style.setProperty('text-align', 'left', 'important');
-            } else if (classes.includes('md:text-right')) {
-              htmlItem.style.setProperty('text-align', 'right', 'important');
-            } else if (classes.includes('md:text-center')) {
-              htmlItem.style.setProperty('text-align', 'center', 'important');
-            } else if (classes.includes('md:text-justify')) {
-              htmlItem.style.setProperty('text-align', 'justify', 'important');
-            }
-
-            // Handle alignment and justification: md:justify-..., md:items-...
-            const justifyMatch = classes.match(/md:justify-(start|end|center|between|around|evenly)/);
-            if (justifyMatch && justifyMatch[1]) {
-              let val = justifyMatch[1];
-              if (val === 'start') val = 'flex-start';
-              if (val === 'end') val = 'flex-end';
-              if (val === 'between') val = 'space-between';
-              if (val === 'around') val = 'space-around';
-              if (val === 'evenly') val = 'space-evenly';
-              htmlItem.style.setProperty('justify-content', val, 'important');
-            }
-            const itemsMatch = classes.match(/md:items-(start|end|center|baseline|stretch)/);
-            if (itemsMatch && itemsMatch[1]) {
-              let val = itemsMatch[1];
-              if (val === 'start') val = 'flex-start';
-              if (val === 'end') val = 'flex-end';
-              htmlItem.style.setProperty('align-items', val, 'important');
-            }
-
-            // Handle spacing (padding, margin, gaps)
-            // md:gap-x-X, md:gap-y-X, md:gap-X
-            const gapMatch = classes.match(/md:gap-(\d+)/);
-            if (gapMatch && gapMatch[1]) {
-              htmlItem.style.setProperty('gap', `${parseFloat(gapMatch[1]) * 0.25}rem`, 'important');
-            }
-            const gapXMatch = classes.match(/md:gap-x-(\d+)/);
-            if (gapXMatch && gapXMatch[1]) {
-              htmlItem.style.setProperty('column-gap', `${parseFloat(gapXMatch[1]) * 0.25}rem`, 'important');
-            }
-            const gapYMatch = classes.match(/md:gap-y-(\d+)/);
-            if (gapYMatch && gapYMatch[1]) {
-              htmlItem.style.setProperty('row-gap', `${parseFloat(gapYMatch[1]) * 0.25}rem`, 'important');
-            }
-
-            // Padding maps: md:p-X, md:px-X, md:py-X etc.
-            const paddingMap: Record<string, string> = {
-              'md:p-': 'padding',
-              'md:px-': 'padding-left,padding-right',
-              'md:py-': 'padding-top,padding-bottom',
-              'md:pt-': 'padding-top',
-              'md:pb-': 'padding-bottom',
-              'md:pl-': 'padding-left',
-              'md:pr-': 'padding-right'
-            };
-            Object.entries(paddingMap).forEach(([prefix, cssProps]) => {
-              const regex = new RegExp(`${prefix}(\\d+(\\.\\d+)?)`);
-              const match = classes.match(regex);
-              if (match && match[1]) {
-                const remVal = `${parseFloat(match[1]) * 0.25}rem`;
-                cssProps.split(',').forEach(prop => {
-                  htmlItem.style.setProperty(prop, remVal, 'important');
-                });
+              // Handle grid column span: e.g. md:col-span-8
+              const colSpanMatch = classes.match(/md:col-span-(\d+)/);
+              if (colSpanMatch && colSpanMatch[1]) {
+                htmlItem.style.setProperty('grid-column', `span ${colSpanMatch[1]} / span ${colSpanMatch[1]}`, 'important');
               }
-            });
 
-            // Margin maps: md:m-X, md:mx-X, md:my-X etc.
-            const marginMap: Record<string, string> = {
-              'md:m-': 'margin',
-              'md:mx-': 'margin-left,margin-right',
-              'md:my-': 'margin-top,margin-bottom',
-              'md:mt-': 'margin-top',
-              'md:mb-': 'margin-bottom',
-              'md:ml-': 'margin-left',
-              'md:mr-': 'margin-right'
-            };
-            Object.entries(marginMap).forEach(([prefix, cssProps]) => {
-              const regex = new RegExp(`${prefix}(\\d+(\\.\\d+)?)`);
-              const match = classes.match(regex);
-              if (match && match[1]) {
-                const remVal = `${parseFloat(match[1]) * 0.25}rem`;
-                cssProps.split(',').forEach(prop => {
-                  htmlItem.style.setProperty(prop, remVal, 'important');
-                });
+              // Handle position relative/absolute: e.g. md:relative, md:absolute
+              if (classes.includes('md:absolute')) {
+                htmlItem.style.setProperty('position', 'absolute', 'important');
+              } else if (classes.includes('md:relative')) {
+                htmlItem.style.setProperty('position', 'relative', 'important');
               }
-            });
 
-            // Handle absolute positioning offsets (md:top-X, md:right-X, md:bottom-X, md:left-X)
-            const dirMap = { 'md:top-': 'top', 'md:right-': 'right', 'md:bottom-': 'bottom', 'md:left-': 'left' };
-            Object.entries(dirMap).forEach(([prefix, cssProp]) => {
-              const regex = new RegExp(`${prefix}(\\d+)`);
-              const match = classes.match(regex);
-              if (match && match[1]) {
-                htmlItem.style.setProperty(cssProp, `${parseFloat(match[1]) * 0.25}rem`, 'important');
+              // Handle flex directions: e.g. md:flex-row, md:flex-col
+              if (classes.includes('md:flex-row')) {
+                htmlItem.style.setProperty('display', 'flex', 'important');
+                htmlItem.style.setProperty('flex-direction', 'row', 'important');
+              } else if (classes.includes('md:flex-col')) {
+                htmlItem.style.setProperty('display', 'flex', 'important');
+                htmlItem.style.setProperty('flex-direction', 'column', 'important');
               }
-            });
 
-            // Handle borders: md:border-r, md:border-l, md:border-t, md:border-b
-            if (classes.includes('md:border-r')) {
-              htmlItem.style.setProperty('border-right-width', '1px', 'important');
-              htmlItem.style.setProperty('border-right-style', 'solid', 'important');
-            }
-            if (classes.includes('md:border-l')) {
-              htmlItem.style.setProperty('border-left-width', '1px', 'important');
-              htmlItem.style.setProperty('border-left-style', 'solid', 'important');
-            }
-            if (classes.includes('md:border-t')) {
-              htmlItem.style.setProperty('border-top-width', '1px', 'important');
-              htmlItem.style.setProperty('border-top-style', 'solid', 'important');
-            }
-            if (classes.includes('md:border-b')) {
-              htmlItem.style.setProperty('border-bottom-width', '1px', 'important');
-              htmlItem.style.setProperty('border-bottom-style', 'solid', 'important');
-            }
-            if (classes.includes('md:border-0')) {
-              htmlItem.style.setProperty('border-width', '0px', 'important');
-            }
-            if (classes.includes('md:border')) {
-              htmlItem.style.setProperty('border-width', '1px', 'important');
-              htmlItem.style.setProperty('border-style', 'solid', 'important');
-            }
-          });
+              // Handle text alignments
+              if (classes.includes('md:text-left')) {
+                htmlItem.style.setProperty('text-align', 'left', 'important');
+              } else if (classes.includes('md:text-right')) {
+                htmlItem.style.setProperty('text-align', 'right', 'important');
+              } else if (classes.includes('md:text-center')) {
+                htmlItem.style.setProperty('text-align', 'center', 'important');
+              } else if (classes.includes('md:text-justify')) {
+                htmlItem.style.setProperty('text-align', 'justify', 'important');
+              }
 
-          // Clean/convert any oklch in inline styles of the container and all of its children
-          const sanitizeElementOklch = (el: HTMLElement) => {
-            if (el.style && el.style.cssText && el.style.cssText.includes('oklch')) {
-              try {
-                const cleaned = sanitizeString(el.style.cssText);
-                if (cleaned !== el.style.cssText) {
-                  el.style.cssText = cleaned;
+              // Handle alignment and justification: md:justify-..., md:items-...
+              const justifyMatch = classes.match(/md:justify-(start|end|center|between|around|evenly)/);
+              if (justifyMatch && justifyMatch[1]) {
+                let val = justifyMatch[1];
+                if (val === 'start') val = 'flex-start';
+                if (val === 'end') val = 'flex-end';
+                if (val === 'between') val = 'space-between';
+                if (val === 'around') val = 'space-around';
+                if (val === 'evenly') val = 'space-evenly';
+                htmlItem.style.setProperty('justify-content', val, 'important');
+              }
+              const itemsMatch = classes.match(/md:items-(start|end|center|baseline|stretch)/);
+              if (itemsMatch && itemsMatch[1]) {
+                let val = itemsMatch[1];
+                if (val === 'start') val = 'flex-start';
+                if (val === 'end') val = 'flex-end';
+                htmlItem.style.setProperty('align-items', val, 'important');
+              }
+
+              // Handle spacing (padding, margin, gaps)
+              const gapMatch = classes.match(/md:gap-(\d+)/);
+              if (gapMatch && gapMatch[1]) {
+                htmlItem.style.setProperty('gap', `${parseFloat(gapMatch[1]) * 0.25}rem`, 'important');
+              }
+              const gapXMatch = classes.match(/md:gap-x-(\d+)/);
+              if (gapXMatch && gapXMatch[1]) {
+                htmlItem.style.setProperty('column-gap', `${parseFloat(gapXMatch[1]) * 0.25}rem`, 'important');
+              }
+              const gapYMatch = classes.match(/md:gap-y-(\d+)/);
+              if (gapYMatch && gapYMatch[1]) {
+                htmlItem.style.setProperty('row-gap', `${parseFloat(gapYMatch[1]) * 0.25}rem`, 'important');
+              }
+
+              // Padding maps: md:p-X, md:px-X, md:py-X etc.
+              const paddingMap: Record<string, string> = {
+                'md:p-': 'padding',
+                'md:px-': 'padding-left,padding-right',
+                'md:py-': 'padding-top,padding-bottom',
+                'md:pt-': 'padding-top',
+                'md:pb-': 'padding-bottom',
+                'md:pl-': 'padding-left',
+                'md:pr-': 'padding-right'
+              };
+              Object.entries(paddingMap).forEach(([prefix, cssProps]) => {
+                const regex = new RegExp(`${prefix}(\\d+(\\.\\d+)?)`);
+                const match = classes.match(regex);
+                if (match && match[1]) {
+                  const remVal = `${parseFloat(match[1]) * 0.25}rem`;
+                  cssProps.split(',').forEach(prop => {
+                    htmlItem.style.setProperty(prop, remVal, 'important');
+                  });
                 }
-              } catch (e) {
-                // Fallback to removing oklch properties
-                for (let j = 0; j < el.style.length; j++) {
-                  const prop = el.style[j];
-                  const val = el.style.getPropertyValue(prop);
-                  if (val && val.includes('oklch')) {
-                    el.style.removeProperty(prop);
-                  }
-                }
-              }
-            }
-          };
+              });
 
-          sanitizeElementOklch(element);
-          const allChilds = element.querySelectorAll('*');
-          allChilds.forEach((item) => sanitizeElementOklch(item as HTMLElement));
+              // Margin maps: md:m-X, md:mx-X, md:my-X etc.
+              const marginMap: Record<string, string> = {
+                'md:m-': 'margin',
+                'md:mx-': 'margin-left,margin-right',
+                'md:my-': 'margin-top,margin-bottom',
+                'md:mt-': 'margin-top',
+                'md:mb-': 'margin-bottom',
+                'md:ml-': 'margin-left',
+                'md:mr-': 'margin-right'
+              };
+              Object.entries(marginMap).forEach(([prefix, cssProps]) => {
+                const regex = new RegExp(`${prefix}(\\d+(\\.\\d+)?)`);
+                const match = classes.match(regex);
+                if (match && match[1]) {
+                  const remVal = `${parseFloat(match[1]) * 0.25}rem`;
+                  cssProps.split(',').forEach(prop => {
+                    htmlItem.style.setProperty(prop, remVal, 'important');
+                  });
+                }
+              });
+
+              // Handle absolute positioning offsets (md:top-X, md:right-X, md:bottom-X, md:left-X)
+              const dirMap = { 'md:top-': 'top', 'md:right-': 'right', 'md:bottom-': 'bottom', 'md:left-': 'left' };
+              Object.entries(dirMap).forEach(([prefix, cssProp]) => {
+                const regex = new RegExp(`${prefix}(\\d+)`);
+                const match = classes.match(regex);
+                if (match && match[1]) {
+                  htmlItem.style.setProperty(cssProp, `${parseFloat(match[1]) * 0.25}rem`, 'important');
+                }
+              });
+
+              // Handle borders: md:border-r, md:border-l, md:border-t, md:border-b
+              if (classes.includes('md:border-r')) {
+                htmlItem.style.setProperty('border-right-width', '1px', 'important');
+                htmlItem.style.setProperty('border-right-style', 'solid', 'important');
+              }
+              if (classes.includes('md:border-l')) {
+                htmlItem.style.setProperty('border-left-width', '1px', 'important');
+                htmlItem.style.setProperty('border-left-style', 'solid', 'important');
+              }
+              if (classes.includes('md:border-t')) {
+                htmlItem.style.setProperty('border-top-width', '1px', 'important');
+                htmlItem.style.setProperty('border-top-style', 'solid', 'important');
+              }
+              if (classes.includes('md:border-b')) {
+                htmlItem.style.setProperty('border-bottom-width', '1px', 'important');
+                htmlItem.style.setProperty('border-bottom-style', 'solid', 'important');
+              }
+              if (classes.includes('md:border-0')) {
+                htmlItem.style.setProperty('border-width', '0px', 'important');
+              }
+              if (classes.includes('md:border')) {
+                htmlItem.style.setProperty('border-width', '1px', 'important');
+                htmlItem.style.setProperty('border-style', 'solid', 'important');
+              }
+            });
+          }
         }
-      }
-    };
+      };
 
       try {
         return await html2canvas(documentElement, options);
       } finally {
         window.getComputedStyle = originalGetComputedStyle;
-        restoreOklch();
-        tempStylesInMainDoc.forEach(style => {
-          if (style.parentNode) {
-            style.parentNode.removeChild(style);
-          }
-        });
       }
     } catch (err) {
       window.getComputedStyle = originalGetComputedStyle;
-      restoreOklch();
-      tempStylesInMainDoc.forEach(style => {
-        if (style.parentNode) {
-          style.parentNode.removeChild(style);
-        }
-      });
       throw err;
     }
   };
