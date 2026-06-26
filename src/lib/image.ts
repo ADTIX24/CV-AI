@@ -251,9 +251,14 @@ export async function exportToPNG(elementId?: string): Promise<string> {
   await new Promise(resolve => setTimeout(resolve, 350));
 
   return withSanitizedStyles(element as HTMLElement, async () => {
-    // Get unscaled layout dimensions to avoid transform: scale errors on mobile screens
+    // Determine exact layout size of the element (offsetWidth/offsetHeight)
     const width = (element as HTMLElement).offsetWidth || 794;
     const height = (element as HTMLElement).offsetHeight || 1123;
+
+    // Get the real viewport offset of the element to cancel any transform/container shifting
+    const rect = (element as HTMLElement).getBoundingClientRect();
+    const offsetX = rect.left;
+    const offsetY = rect.top;
 
     // Generate high resolution by adjusting pixelRatio to 3 (perfect clarity)
     const dataUrl = await htmlToImage.toPng(element as HTMLElement, {
@@ -263,15 +268,10 @@ export async function exportToPNG(elementId?: string): Promise<string> {
       pixelRatio: 3,
       backgroundColor: '#ffffff',
       style: {
-        transform: 'scale(1)',
+        transform: `translate(${-offsetX}px, ${-offsetY}px)`,
         transformOrigin: 'top left',
         maxWidth: 'none',
-        overflow: 'visible',
-        margin: '0',
-        padding: '0',
-        position: 'relative',
-        left: '0',
-        top: '0',
+        overflow: 'visible'
       }
     });
     return dataUrl;
@@ -311,18 +311,15 @@ export async function exportToPDF(elementId?: string): Promise<Blob> {
     img.src = dataUrl;
   });
 
-  const pdfWidth = width;
-  const pdfHeight = height;
-
   // Initialize jsPDF with exact matching size to guarantee a single-page output without extra pages
   const pdf = new jsPDF({
-    orientation: pdfWidth > pdfHeight ? 'landscape' : 'portrait',
+    orientation: width > height ? 'l' : 'p',
     unit: 'px',
-    format: [pdfWidth, pdfHeight],
+    format: [width, height],
     compress: true
   });
 
-  pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
+  pdf.addImage(dataUrl, 'PNG', 0, 0, width, height, undefined, 'FAST');
   return pdf.output('blob');
 }
 

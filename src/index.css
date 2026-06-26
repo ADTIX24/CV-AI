@@ -71,6 +71,7 @@ body {
 #cv-preview-a4 {
   max-width: none !important;
   overflow: visible !important;
+  margin: 0 !important;
 }
 
 /* 

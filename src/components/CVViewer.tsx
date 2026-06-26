@@ -1688,7 +1688,9 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
               maxHeight: '1123px',
               boxSizing: 'border-box',
               position: 'relative',
-              overflow: 'hidden'
+              overflow: 'hidden',
+              transform: 'none',
+              transformOrigin: 'top left'
             }}
           >
 
