@@ -251,8 +251,14 @@ export async function exportToPNG(elementId?: string): Promise<string> {
   await new Promise(resolve => setTimeout(resolve, 350));
 
   return withSanitizedStyles(element as HTMLElement, async () => {
+    // Get unscaled layout dimensions to avoid transform: scale errors on mobile screens
+    const width = (element as HTMLElement).offsetWidth || 794;
+    const height = (element as HTMLElement).offsetHeight || 1123;
+
     // Generate high resolution by adjusting pixelRatio to 3 (perfect clarity)
     const dataUrl = await htmlToImage.toPng(element as HTMLElement, {
+      width: width,
+      height: height,
       quality: 1.0,
       pixelRatio: 3,
       backgroundColor: '#ffffff',
@@ -260,6 +266,9 @@ export async function exportToPNG(elementId?: string): Promise<string> {
         transform: 'none',
         margin: '0',
         padding: '0',
+        position: 'relative',
+        left: '0',
+        top: '0',
       }
     });
     return dataUrl;
@@ -281,10 +290,10 @@ export async function exportToPDF(elementId?: string): Promise<Blob> {
   // Generate crisp PNG image first
   const dataUrl = await exportToPNG(elementId);
 
-  // Determine exact size of the element
-  const rect = element.getBoundingClientRect();
-  const width = rect.width || 794;
-  const height = rect.height || 1123;
+  // Determine exact layout size of the element (offsetWidth/offsetHeight)
+  // to avoid transform:scale alterations on small screens/mobiles.
+  const width = (element as HTMLElement).offsetWidth || 794;
+  const height = (element as HTMLElement).offsetHeight || 1123;
 
   // Initialize jsPDF with exact matching size to guarantee a single-page output without extra pages
   const pdf = new jsPDF({

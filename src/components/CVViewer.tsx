@@ -1658,6 +1658,24 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
           }}
           className="shadow-2xl rounded-2xl overflow-hidden"
         >
+          {/* Export Rendering Premium Loader */}
+          {pdfLoading && (
+            <div className="absolute inset-0 bg-white/95 z-50 flex flex-col items-center justify-center gap-4 cursor-wait font-sans select-none animate-fade-in rounded-2xl">
+              <div className="w-12 h-12 border-4 border-violet-600 border-t-transparent rounded-full animate-spin"></div>
+              <div className="text-zinc-900 font-bold text-base text-center px-4 animate-pulse">
+                {loadingType === 'image' ? (
+                  lang === 'ar' 
+                    ? '✦ جاري تصدير وتوليد ملف الصورة بدقة عالية... يرجى الانتظار ثانية واحدة !' 
+                    : '✦ Capturing high-fidelity mobile-optimized Image... Please wait a second!'
+                ) : (
+                  lang === 'ar' 
+                    ? '✦ جاري تصدير وتوليد ملف المستند الـ PDF بدقة هاتف عالية... يرجى الانتظار ثانية واحدة !' 
+                    : '✦ Capturing high-fidelity mobile-optimized PDF document... Please wait a second!'
+                )}
+              </div>
+            </div>
+          )}
+
           <div 
             className={`group relative ${config.paperBg} text-zinc-900 duration-500 transition-colors p-10 w-[794px] h-[1123px] overflow-hidden cursor-crosshair select-text`}
             id="cv-preview-a4"
@@ -1673,23 +1691,6 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
               overflow: 'hidden'
             }}
           >
-        {/* Export Rendering Premium Loader */}
-        {pdfLoading && (
-          <div className="absolute inset-0 bg-white/90 z-50 flex flex-col items-center justify-center gap-4 cursor-wait font-sans select-none animate-fade-in rounded-2xl">
-            <div className="w-12 h-12 border-4 border-violet-600 border-t-transparent rounded-full animate-spin"></div>
-            <div className="text-zinc-900 font-bold text-base text-center px-4 animate-pulse">
-              {loadingType === 'image' ? (
-                lang === 'ar' 
-                  ? '✦ جاري تصدير وتوليد ملف الصورة بدقة عالية... يرجى الانتظار ثانية واحدة !' 
-                  : '✦ Capturing high-fidelity mobile-optimized Image... Please wait a second!'
-              ) : (
-                lang === 'ar' 
-                  ? '✦ جاري تصدير وتوليد ملف المستند الـ PDF بدقة هاتف عالية... يرجى الانتظار ثانية واحدة !' 
-                  : '✦ Capturing high-fidelity mobile-optimized PDF document... Please wait a second!'
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Anti-screenshot Watermark Overlays (Locked previews only) */}
         {!unlocked && (
