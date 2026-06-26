@@ -247,6 +247,10 @@ export async function exportToPNG(elementId?: string): Promise<string> {
   // Detect the actual direction (rtl for Arabic, ltr for English) of the target element
   const currentDir = originalElement.getAttribute('dir') || window.getComputedStyle(originalElement).direction || 'rtl';
 
+  // Deep clone the original element to preserve computed styles and HTML structures cleanly
+  const cloned = originalElement.cloneNode(true) as HTMLElement;
+  cloned.id = "cloned-cv-preview";
+
   // 1. Create a completely isolated, hidden virtual iframe
   const iframe = document.createElement('iframe');
   iframe.style.position = 'fixed';
@@ -268,7 +272,7 @@ export async function exportToPNG(elementId?: string): Promise<string> {
     stylesHtml += styleElement.outerHTML;
   });
 
-  // 3. Build the page inside iframe and inject strict Copilot layout rules to prevent any clipping from top or right
+  // 3. Build the page inside iframe and inject strict layout rules to prevent any clipping from top or right
   iframeDoc.open();
   iframeDoc.write(`
     <!DOCTYPE html>
@@ -288,30 +292,46 @@ export async function exportToPNG(elementId?: string): Promise<string> {
             direction: ${currentDir} !important;
             text-align: ${currentDir === 'rtl' ? 'right' : 'left'} !important;
           }
-          #cv-preview-a4, #cv-container, #cv-wrapper, #cv-rendered-document-face {
-            width: 794px !important;
-            height: 1123px !important;
-            max-width: none !important;
-            max-height: none !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            transform: none !important;
-            transform-origin: top left !important;
-            overflow: visible !important;
-            position: relative !important;
-            left: 0 !important;
-            top: 0 !important;
-          }
         </style>
       </head>
       <body dir="${currentDir}">
-        <div id="cv-preview-a4" dir="${currentDir}">
-          ${originalElement.innerHTML}
-        </div>
       </body>
     </html>
   `);
   iframeDoc.close();
+
+  // Inject cloned element inside the body of the isolated iframe
+  const iframeBody = iframeDoc.body;
+  iframeBody.appendChild(cloned);
+
+  // Apply strict real dimensions and normalization styles on the cloned element inside the iframe
+  cloned.style.width = '794px';
+  cloned.style.height = '1123px';
+  cloned.style.margin = '0';
+  cloned.style.padding = '0';
+  cloned.style.boxSizing = 'border-box';
+  cloned.style.transform = 'none';
+  cloned.style.overflow = 'visible';
+  cloned.style.position = 'relative';
+  cloned.style.left = '0';
+  cloned.style.top = '0';
+  cloned.setAttribute('dir', currentDir);
+  cloned.style.direction = currentDir;
+
+  // Remove any inner wrapper overflow/max-size restrictions
+  const wrappers = cloned.querySelectorAll('*');
+  wrappers.forEach(el => {
+    const htmlEl = el as HTMLElement;
+    htmlEl.style.maxWidth = 'none';
+    htmlEl.style.maxHeight = 'none';
+    htmlEl.style.overflow = 'visible';
+    
+    // Fallback any oklch color styles to standard rgb to avoid rendering issues on some browsers
+    const styles = window.getComputedStyle(htmlEl);
+    if (styles.color && styles.color.includes('oklch')) {
+      htmlEl.style.color = 'rgb(31, 41, 55)';
+    }
+  });
 
   // Apply attributes dynamically to enforce the rendering engine to align properly
   if (iframeDoc.documentElement) {
@@ -325,17 +345,14 @@ export async function exportToPNG(elementId?: string): Promise<string> {
 
   try {
     // Wait for fonts and complete DOM painting inside the new environment
-    await new Promise((resolve) => setTimeout(resolve, 450));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     if (iframeDoc.fonts) {
       await iframeDoc.fonts.ready;
     }
 
-    // 4. Capture the clean dataUrl from inside the iframe's body or CV element
-    const captureTarget = iframeDoc.getElementById('cv-preview-a4') || iframeDoc.body;
-    const dataUrl = await htmlToImage.toPng(captureTarget, {
+    // 4. Capture the clean dataUrl from cloned inside the iframe
+    const dataUrl = await htmlToImage.toPng(cloned, {
       pixelRatio: 2,
-      width: 794,
-      height: 1123,
       cacheBust: true,
       backgroundColor: '#ffffff'
     });
@@ -367,15 +384,20 @@ export async function exportToPDF(elementId?: string): Promise<Blob> {
   // Generate crisp PNG image first
   const dataUrl = await exportToPNG(elementId);
 
-  // Initialize jsPDF with exact matching size to guarantee a single-page output without extra pages
+  // Load the generated image to get its precise width and height
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
+
+  // Initialize jsPDF with exact matching size of the generated PNG to guarantee single page
   const pdf = new jsPDF({
-    orientation: 'p',
+    orientation: 'portrait',
     unit: 'px',
-    format: [794, 1123],
+    format: [img.width, img.height],
     compress: true
   });
 
-  pdf.addImage(dataUrl, 'PNG', 0, 0, 794, 1123, undefined, 'FAST');
+  pdf.addImage(dataUrl, 'PNG', 0, 0, img.width, img.height, undefined, 'FAST');
   return pdf.output('blob');
 }
 
