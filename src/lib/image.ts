@@ -236,43 +236,105 @@ function withSanitizedStyles<T>(element: HTMLElement, action: () => Promise<T>):
  * Captures the specified element as a high-quality PNG data URL
  */
 export async function exportToPNG(elementId?: string): Promise<string> {
-  const element = document.getElementById(elementId || 'cv-preview-a4') || 
-                  document.getElementById('cv-rendered-document-face') || 
-                  document.querySelector('[id^="cv-preview"]') as HTMLElement;
+  const originalElement = document.getElementById(elementId || 'cv-preview-a4') || 
+                          document.getElementById('cv-rendered-document-face') || 
+                          document.querySelector('[id^="cv-preview"]') as HTMLElement;
                   
-  if (!element) {
+  if (!originalElement) {
     throw new Error("Preview element not found");
   }
 
-  // Wait for fonts and complete DOM painting
-  if (document.fonts) {
-    await document.fonts.ready;
-  }
-  await new Promise(resolve => setTimeout(resolve, 350));
+  // 1. Create a completely isolated, hidden virtual iframe
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.top = '-9999px';
+  iframe.style.left = '-9999px';
+  iframe.style.width = '794px';
+  iframe.style.height = '1123px';
+  iframe.style.border = 'none';
+  document.body.appendChild(iframe);
 
-  return withSanitizedStyles(element as HTMLElement, async () => {
-    // Generate high resolution by adjusting pixelRatio to 2 (excellent quality, safe for mobile)
-    const dataUrl = await htmlToImage.toPng(element as HTMLElement, {
+  const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+  if (!iframeDoc) {
+    throw new Error("Failed to create isolated document");
+  }
+
+  // 2. Fetch all stylesheet and style tags to run inside the iframe
+  let stylesHtml = '';
+  document.querySelectorAll('style, link[rel="stylesheet"]').forEach((styleElement) => {
+    stylesHtml += styleElement.outerHTML;
+  });
+
+  // 3. Build the page inside iframe and inject strict Copilot layout rules to prevent any clipping from top or right
+  iframeDoc.open();
+  iframeDoc.write(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        ${stylesHtml}
+        <style>
+          /* Force isolated environment dimensions without any distortion or margins */
+          body { 
+            margin: 0; 
+            padding: 0; 
+            background: #ffffff; 
+            width: 794px; 
+            height: 1123px; 
+            overflow: hidden; 
+          }
+          #cv-preview-a4, #cv-container, #cv-wrapper, #cv-rendered-document-face {
+            width: 794px !important;
+            height: 1123px !important;
+            max-width: none !important;
+            max-height: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            transform: none !important;
+            transform-origin: top left !important;
+            overflow: visible !important;
+            position: relative !important;
+            left: 0 !important;
+            top: 0 !important;
+          }
+        </style>
+      </head>
+      <body>
+        <div id="cv-preview-a4">
+          ${originalElement.innerHTML}
+        </div>
+      </body>
+    </html>
+  `);
+  iframeDoc.close();
+
+  try {
+    // Wait for fonts and complete DOM painting inside the new environment
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    if (iframeDoc.fonts) {
+      await iframeDoc.fonts.ready;
+    }
+
+    // 4. Capture the clean dataUrl from inside the iframe's body or CV element
+    const captureTarget = iframeDoc.getElementById('cv-preview-a4') || iframeDoc.body;
+    const dataUrl = await htmlToImage.toPng(captureTarget, {
+      pixelRatio: 2,
       width: 794,
       height: 1123,
-      quality: 1.0,
-      pixelRatio: 2,
       cacheBust: true,
-      backgroundColor: '#ffffff',
-      style: {
-        transform: 'scale(1)',
-        transformOrigin: 'top left',
-        margin: '0',
-        padding: '0',
-        position: 'relative',
-        left: '0',
-        top: '0',
-        maxWidth: 'none',
-        overflow: 'visible'
-      }
+      backgroundColor: '#ffffff'
     });
+
+    // Cleanup
+    document.body.removeChild(iframe);
     return dataUrl;
-  });
+  } catch (error) {
+    // Cleanup if something goes wrong
+    if (document.body.contains(iframe)) {
+      document.body.removeChild(iframe);
+    }
+    throw error;
+  }
 }
 
 /**
