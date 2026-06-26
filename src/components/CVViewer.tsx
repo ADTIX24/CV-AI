@@ -9,6 +9,7 @@ import { CVProfile } from '../types';
 import { AppTranslation } from '../translations';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import { exportToPNG, exportToPDF, exportToWord } from '../lib/image';
 
 interface Props {
   t: AppTranslation;
@@ -878,41 +879,23 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
   const downloadAsPDF = async () => {
     setLoadingType('pdf');
     setPdfLoading(true);
-    const element = document.getElementById('cv-preview-a4') || document.getElementById('cv-rendered-document-face');
-    if (!element) {
-      setPdfLoading(false);
-      setLoadingType(null);
-      return;
-    }
 
     try {
       const sanitizedName = (profile.fullName || 'cv-professional').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
       const filename = `${sanitizedName || 'cv'}.pdf`;
 
-      // 1. Generate the single-page canvas at high quality (scale 3)
-      const canvas = await generateHighQualityCanvas(3);
-      
-      // 2. Convert to high-quality JPEG data URL
-      const imgData = canvas.toDataURL('image/jpeg', 1.0);
-
-      // 3. Initialize jsPDF with exact dimensions matching A4 ratio at 96DPI
-      const { jsPDF } = await import('jspdf');
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'px',
-        format: [794, 1123],
-        compress: true
-      });
-
-      // 4. Draw image onto the single A4 page filling it completely
-      pdf.addImage(imgData, 'JPEG', 0, 0, 794, 1123, undefined, 'FAST');
-      
-      // 5. Save the document and handle mobile/WebView deliveries
-      const pdfBlob = pdf.output('blob');
+      const pdfBlob = await exportToPDF('cv-preview-a4');
       const delivered = await handleFileDelivery(pdfBlob, filename, 'application/pdf');
 
       if (!delivered) {
-        pdf.save(filename);
+        const url = URL.createObjectURL(pdfBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
       }
     } catch (error) {
       console.error("Error during PDF download, falling back to window.print():", error);
@@ -928,178 +911,64 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
     setLoadingType('image');
     setPdfLoading(true);
 
-    const scaleLevels = [2, 1.5, 1];
-    let success = false;
-    let lastError: any = null;
-
-    for (const scaleVal of scaleLevels) {
-      if (success) break;
-      try {
-        const canvas = await generateHighQualityCanvas(scaleVal);
-        const imgData = canvas.toDataURL('image/png');
-        
-        // On mobile/WebView, ALWAYS open the gorgeous preview/modal save overlay for perfect UX
-        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        if (isMobile) {
-          setCompiledImage(imgData);
-          success = true;
-          break;
-        }
-
+    try {
+      const imgData = await exportToPNG('cv-preview-a4');
+      
+      // On mobile/WebView, ALWAYS open the gorgeous preview/modal save overlay for perfect UX
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      if (isMobile) {
+        setCompiledImage(imgData);
+      } else {
         const sanitizedName = (profile.fullName || 'cv-professional').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
         const filename = `${sanitizedName || 'cv'}.png`;
 
-        const imageBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
-        if (!imageBlob) {
-          throw new Error("Unable to export canvas blob");
-        }
+        const response = await fetch(imgData);
+        const imageBlob = await response.blob();
 
         const delivered = await handleFileDelivery(imageBlob, filename, 'image/png');
 
-        if (delivered) {
-          success = true;
-          console.log(`Image successfully generated with scale level: ${scaleVal}`);
-          break;
-        } else {
+        if (!delivered) {
           const link = document.createElement('a');
           link.href = imgData;
           link.download = filename;
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
-          success = true;
-          break;
         }
-      } catch (error) {
-        console.warn(`Image compilation with scale:${scaleVal} failed, attempting next scale value...`, error);
-        lastError = error;
       }
-    }
-
-    setPdfLoading(false);
-    setLoadingType(null);
-
-    if (!success) {
-      console.error("All Image generation options failed:", lastError);
-      const errMsg = lastError instanceof Error ? lastError.message : String(lastError || 'Unknown error');
+    } catch (error) {
+      console.error("All Image generation options failed:", error);
+      const errMsg = error instanceof Error ? error.message : String(error || 'Unknown error');
       alert(lang === 'ar' 
         ? `حدث خطأ غير متوقع أثناء تحميل ملف الصورة. التفاصيل: ${errMsg}. يرجى تجربة متصفح آخر أو مراجعة الدعم الفني.` 
         : `Unexpected error during Image generation. Details: ${errMsg}. Please try another browser or contact support.`);
+    } finally {
+      setPdfLoading(false);
+      setLoadingType(null);
     }
   };
 
   // Generate and download fully formatted editable Word Document file (.doc)
   const downloadAsWord = async () => {
-    const documentElement = document.getElementById("cv-preview-a4") || document.getElementById("cv-rendered-document-face");
-    if (!documentElement) return;
+    try {
+      const sanitizedName = (profile.fullName || 'Resume').trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\s-_]/g, '');
+      const filename = `${sanitizedName || 'cv'}_CV.doc`;
 
-    // Create a temporary clone inside a virtual div to sanitize heavy elements
-    const tempDiv = document.createElement("div");
-    tempDiv.innerHTML = documentElement.innerHTML;
-
-    // Remove any huge base64 images (avatars, logos etc.) which crash or corrupt standard MS Word HTML parsers
-    const imgs = tempDiv.getElementsByTagName("img");
-    for (let i = imgs.length - 1; i >= 0; i--) {
-      const img = imgs[i];
-      const src = img.getAttribute("src") || "";
-      if (src.startsWith("data:") || src.length > 500) {
-        const placeholder = document.createElement("div");
-        placeholder.style.border = "1px dashed #dddddd";
-        placeholder.style.padding = "12px";
-        placeholder.style.margin = "10px 0";
-        placeholder.style.textAlign = "center";
-        placeholder.style.fontSize = "10pt";
-        placeholder.style.color = "#666666";
-        placeholder.style.backgroundColor = "#fafafa";
-        placeholder.style.borderRadius = "6px";
-        placeholder.style.fontWeight = "bold";
-        
-        const className = img.className || "";
-        const alt = img.getAttribute("alt") || "";
-        const isLogo = className.includes("Logo") || alt.includes("Logo");
-        
-        if (isLogo) {
-          placeholder.innerText = lang === 'ar' 
-            ? '📍 [شعار الشركة - متوفر في النسخة الرقمية وصيغتي PDF/PNG]' 
-            : '📍 [Company Logo Place - Available in PDF/PNG and Online versions]';
-        } else {
-          placeholder.innerText = lang === 'ar' 
-            ? '👤 [صورة الملف الشخصي - متوفرة في صيغتي PDF/PNG والنسخة الرقمية]' 
-            : '👤 [Profile Photo - Available in PDF/PNG and Online versions]';
-        }
-        
-        img.parentNode?.replaceChild(placeholder, img);
+      const docBlob = await exportToWord('cv-preview-a4', profile.fullName, lang);
+      const delivered = await handleFileDelivery(docBlob, filename, 'application/vnd.ms-word');
+      
+      if (!delivered) {
+        const url = URL.createObjectURL(docBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
       }
-    }
-
-    // Remove all SVGs because Microsoft Word doesn't support vector SVG tags in inline HTML; they cause a critical "File Corrupted" error on opening
-    const svgs = tempDiv.getElementsByTagName("svg");
-    for (let i = svgs.length - 1; i >= 0; i--) {
-      const svg = svgs[i];
-      svg.parentNode?.removeChild(svg);
-    }
-
-    // Clean remaining loader and unwanted overlay/control elements
-    const unwantedSelectors = [
-      ".animate-pulse",
-      ".animate-spin",
-      ".absolute.inset-0",
-      "#screenshot-protection-panel",
-      ".screenshot-protection-panel",
-      "button",
-      "input",
-      "select",
-      ".select-none",
-      "iframe"
-    ];
-    unwantedSelectors.forEach(selector => {
-      tempDiv.querySelectorAll(selector).forEach(el => el.parentNode?.removeChild(el));
-    });
-
-    const htmlContent = tempDiv.innerHTML;
-    const rawWordContent = `
-      <html xmlns:o='urn:schemas-microsoft-com:office:office' 
-            xmlns:w='urn:schemas-microsoft-com:office:word' 
-            xmlns='http://www.w3.org/TR/REC-html40'>
-      <head>
-        <meta charset="UTF-8">
-        <title>${profile.fullName || 'CV_AI'}</title>
-        <style>
-          @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&family=Cairo:wght@300;400;600;700;900&display=swap');
-          body {
-            font-family: ${getMappedFontCSS().replace(/'/g, "")}, Arial, sans-serif;
-            font-size: 11pt;
-            line-height: 1.4;
-            color: #333333;
-            padding: 20px;
-          }
-          h1, h2, h3, h4 { color: #111111; font-family: ${getMappedFontCSS().replace(/'/g, "")}, Arial, sans-serif; }
-          .grid { display: block; }
-          .flex { display: flex; }
-          table { width: 100%; border-collapse: collapse; }
-          td { padding: 4px; }
-        </style>
-      </head>
-      <body>
-        ${htmlContent}
-      </body>
-      </html>
-    `;
-
-    // Modern MS Word parses UTF-8 HTML with a Byte-Order Mark (BOM) \uFEFF to load correctly on all Office versions
-    const docBlob = new Blob(['\ufeff' + rawWordContent], { type: 'application/vnd.ms-word;charset=utf-8' });
-    const filename = `${profile.fullName || 'Resume'}_CV.doc`;
-
-    const delivered = await handleFileDelivery(docBlob, filename, 'application/vnd.ms-word');
-    if (!delivered) {
-      const url = URL.createObjectURL(docBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error exporting to Word:", error);
     }
   };
 
