@@ -283,23 +283,32 @@ export async function exportToPNG(elementId?: string): Promise<string> {
         <style>
           /* Force isolated environment dimensions without any distortion or margins */
           body { 
-            margin: 0; 
-            padding: 0; 
-            background: #ffffff; 
-            width: 794px; 
-            height: 1123px; 
-            overflow: hidden; 
+            margin: 0 !important; 
+            padding: 0 !important; 
+            background: #ffffff !important; 
+            width: 794px !important; 
+            height: 1123px !important; 
+            overflow: hidden !important; 
             direction: ${currentDir} !important;
             text-align: ${currentDir === 'rtl' ? 'right' : 'left'} !important;
           }
-          #cv-preview-a4, #cloned-cv-preview {
+          
+          /* تثبيت حجم العنصر الرئيسي فقط ومنع أي إزاحة */
+          #cloned-cv-preview {
             width: 794px !important;
             height: 1123px !important;
             margin: 0 !important;
             padding: 0 !important;
             box-sizing: border-box !important;
             overflow: hidden !important;
+            transform: scale(1) !important;
+            transform-origin: top left !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
           }
+
+          /* منع أي تمدد تلقائي للصور واللوغو برؤية كوبايلوت */
           img, svg {
             max-width: 100% !important;
             height: auto !important;
@@ -326,7 +335,7 @@ export async function exportToPNG(elementId?: string): Promise<string> {
   cloned.style.transform = 'scale(1)';
   cloned.style.transformOrigin = 'top left';
   cloned.style.overflow = 'hidden';
-  cloned.style.position = 'relative';
+  cloned.style.position = 'absolute';
   cloned.style.left = '0';
   cloned.style.top = '0';
   cloned.setAttribute('dir', currentDir);
@@ -352,7 +361,7 @@ export async function exportToPNG(elementId?: string): Promise<string> {
 
   try {
     // Wait for fonts and complete DOM painting inside the new environment
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 600));
     if (iframeDoc.fonts) {
       await iframeDoc.fonts.ready;
     }
@@ -375,6 +384,135 @@ export async function exportToPNG(elementId?: string): Promise<string> {
     throw error;
   }
 }
+
+/**
+ * دالة التصدير المباشرة لإنهاء مشكلة اللوغو والقص وتنزيل السيرة الذاتية بضغطة واحدة
+ */
+export const downloadCV = async () => {
+  const originalElement = document.getElementById('cv-preview-a4');
+  if (!originalElement) return;
+
+  try {
+    // 1. كشف الاتجاه الحالي تلقائياً (RTL أو LTR)
+    const currentDir = originalElement.getAttribute('dir') || window.getComputedStyle(originalElement).direction || 'rtl';
+
+    // 2. الاستنساخ العميق للعنصر الأصلي
+    const cloned = originalElement.cloneNode(true) as HTMLElement;
+    cloned.id = "cloned-cv-preview";
+
+    // 3. إنشاء الـ iFrame المخفي في الخلفية بنفس أبعاد الـ A4
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.top = '-9999px';
+    iframe.style.left = '-9999px';
+    iframe.style.width = '794px';
+    iframe.style.height = '1123px';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!iframeDoc) return;
+
+    // جلب كافة الستاينز والـ CSS من الصفحة الأساسية
+    let stylesHtml = '';
+    document.querySelectorAll('style, link[rel="stylesheet"]').forEach((styleElement) => {
+      stylesHtml += styleElement.outerHTML;
+    });
+
+    // 4. بناء هيكل المستند وتطبيق قواعد كوبايلوت الصارمة لحماية اللوغو والصور
+    iframeDoc.open();
+    iframeDoc.write(`
+      <!DOCTYPE html>
+      <html dir="${currentDir}" lang="${currentDir === 'rtl' ? 'ar' : 'en'}">
+        <head>
+          ${stylesHtml}
+          <style>
+            body { 
+              margin: 0 !important; 
+              padding: 0 !important; 
+              background: #ffffff !important; 
+              width: 794px !important; 
+              height: 1123px !important; 
+              overflow: hidden !important; 
+              direction: ${currentDir} !important;
+              text-align: ${currentDir === 'rtl' ? 'right' : 'left'} !important;
+            }
+            
+            /* تثبيت حجم العنصر الرئيسي فقط ومنع أي إزاحة */
+            #cloned-cv-preview {
+              width: 794px !important;
+              height: 1123px !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              box-sizing: border-box !important;
+              overflow: hidden !important;
+              transform: scale(1) !important;
+              transform-origin: top left !important;
+              position: absolute !important;
+              top: 0 !important;
+              left: 0 !important;
+            }
+
+            /* منع أي تمدد تلقائي للصور واللوغو برؤية كوبايلوت */
+            img, svg {
+              max-width: 100% !important;
+              height: auto !important;
+              object-fit: contain !important;
+            }
+          </style>
+        </head>
+        <body>
+        </body>
+      </html>
+    `);
+    iframeDoc.close();
+
+    // حقن العنصر المستنسخ (الصافي وبدون تعديل عناصره الداخلية)
+    iframeDoc.body.appendChild(cloned);
+
+    // معالجة ألوان oklch فقط دون المساس بالأبعاد والـ widths
+    cloned.querySelectorAll('*').forEach(el => {
+      const htmlEl = el as HTMLElement;
+      const styles = window.getComputedStyle(htmlEl);
+      if (styles.color && styles.color.includes('oklch')) {
+        htmlEl.style.color = 'rgb(31, 41, 55)';
+      }
+    });
+
+    // 5. انتظار تحميل الخطوط والصور لضمان منع الـ reflow
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    if (iframeDoc.fonts) await iframeDoc.fonts.ready;
+
+    // 6. التقاط الصورة من العنصر المستنسخ نفسه بدقة عالية
+    const htmlToImage = (await import('html-to-image'));
+    const imgData = await htmlToImage.toPng(cloned, {
+      pixelRatio: 2,
+      cacheBust: true
+    });
+
+    // 7. بناء الـ PDF بأبعاد مطابقة تماماً للصورة الناتجة
+    const { jsPDF } = await import('jspdf');
+    const img = new Image();
+    img.src = imgData;
+    await img.decode();
+
+    const pdf = new jsPDF({
+      orientation: 'p',
+      unit: 'px',
+      format: [img.width, img.height]
+    });
+
+    pdf.addImage(imgData, 'PNG', 0, 0, img.width, img.height);
+    pdf.save('cv-professional.pdf');
+
+    // تنظيف الـ DOM
+    document.body.removeChild(iframe);
+
+  } catch (error) {
+    console.error("Error during perfect render:", error);
+    window.print();
+  }
+};
 
 /**
  * Captures the element and generates a high-quality single-page PDF with exact matching dimensions
