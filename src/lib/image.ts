@@ -298,7 +298,12 @@ export async function exportToPNG(elementId?: string): Promise<string> {
             margin: 0 !important;
             padding: 0 !important;
             box-sizing: border-box !important;
-            overflow: visible !important;
+            overflow: hidden !important;
+          }
+          img, svg {
+            max-width: 100% !important;
+            height: auto !important;
+            object-fit: contain !important;
           }
         </style>
       </head>
@@ -318,8 +323,9 @@ export async function exportToPNG(elementId?: string): Promise<string> {
   cloned.style.margin = '0';
   cloned.style.padding = '0';
   cloned.style.boxSizing = 'border-box';
-  cloned.style.transform = 'none';
-  cloned.style.overflow = 'visible';
+  cloned.style.transform = 'scale(1)';
+  cloned.style.transformOrigin = 'top left';
+  cloned.style.overflow = 'hidden';
   cloned.style.position = 'relative';
   cloned.style.left = '0';
   cloned.style.top = '0';
