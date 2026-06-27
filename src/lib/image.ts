@@ -292,6 +292,14 @@ export async function exportToPNG(elementId?: string): Promise<string> {
             direction: ${currentDir} !important;
             text-align: ${currentDir === 'rtl' ? 'right' : 'left'} !important;
           }
+          #cv-preview-a4, #cloned-cv-preview {
+            width: 794px !important;
+            height: 1123px !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-sizing: border-box !important;
+            overflow: visible !important;
+          }
         </style>
       </head>
       <body dir="${currentDir}">
@@ -304,7 +312,7 @@ export async function exportToPNG(elementId?: string): Promise<string> {
   const iframeBody = iframeDoc.body;
   iframeBody.appendChild(cloned);
 
-  // Apply strict real dimensions and normalization styles on the cloned element inside the iframe
+  // تطبيق الأبعاد الحقيقية الصارمة على الحاوية الخارجية فقط دون المساس بالعناصر الداخلية واللوغو
   cloned.style.width = '794px';
   cloned.style.height = '1123px';
   cloned.style.margin = '0';
@@ -318,22 +326,15 @@ export async function exportToPNG(elementId?: string): Promise<string> {
   cloned.setAttribute('dir', currentDir);
   cloned.style.direction = currentDir;
 
-  // Remove any inner wrapper overflow/max-size restrictions
-  const wrappers = cloned.querySelectorAll('*');
-  wrappers.forEach(el => {
+  // معالجة ألوان oklch فقط للعناصر الداخلية إن وجدت دون تغيير أبعادها ومقاساتها
+  cloned.querySelectorAll('*').forEach(el => {
     const htmlEl = el as HTMLElement;
-    htmlEl.style.maxWidth = 'none';
-    htmlEl.style.maxHeight = 'none';
-    htmlEl.style.overflow = 'visible';
-    
-    // Fallback any oklch color styles to standard rgb to avoid rendering issues on some browsers
     const styles = window.getComputedStyle(htmlEl);
     if (styles.color && styles.color.includes('oklch')) {
       htmlEl.style.color = 'rgb(31, 41, 55)';
     }
   });
 
-  // Apply attributes dynamically to enforce the rendering engine to align properly
   if (iframeDoc.documentElement) {
     iframeDoc.documentElement.setAttribute('dir', currentDir);
   }
