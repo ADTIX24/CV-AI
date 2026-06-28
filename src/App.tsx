@@ -108,6 +108,7 @@ export default function App() {
   });
   const redirectToWorkspaceOnLoginRef = useRef<boolean>(false);
   const googleAuthLockRef = useRef<boolean>(false);
+  const hasAutoloadedRef = useRef<boolean>(false);
 
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
   const [showAccountModal, setShowAccountModal] = useState<boolean>(false);
@@ -486,6 +487,12 @@ export default function App() {
       snapshot.forEach(doc => {
         list.push(doc.data() as CVProfile);
       });
+      // Sort by id ascending (oldest first) to ensure completely stable indices
+      list.sort((a, b) => {
+        const idA = a.id || '';
+        const idB = b.id || '';
+        return idA.localeCompare(idB);
+      });
       setUserResumes(list);
     }, (err: any) => {
       console.warn("Failed to subscribe user resumes collection, continuing in offline cached mode:", err.message || err);
@@ -493,12 +500,13 @@ export default function App() {
     return () => unsubscribe();
   }, [isLoggedIn, auth.currentUser?.uid]);
 
-  // 3b. Safe autoload of last edited profile if target is empty, preventing stale closures and state override loops
+  // 3b. Safe autoload of last edited profile ONLY once on initial mount/login, preventing stale closures and state override loops
   useEffect(() => {
-    if (userResumes.length > 0 && !profile.fullName) {
+    if (userResumes.length > 0 && !hasAutoloadedRef.current) {
       setProfile(userResumes[0]);
+      hasAutoloadedRef.current = true;
     }
-  }, [userResumes, profile.fullName]);
+  }, [userResumes]);
 
   // 4. Complete users list subscription ONLY for verified admin (veira1x1@gmail.com)
   useEffect(() => {
@@ -966,6 +974,7 @@ export default function App() {
     localStorage.removeItem('cv_ai_user_credits');
     localStorage.removeItem('cv_ai_unlocked_snapshot');
     
+    hasAutoloadedRef.current = false;
     setIsLoggedIn(false);
     setCurrentUserEmail('');
     setCurrentUserName('');
@@ -1005,6 +1014,7 @@ export default function App() {
   };
 
   const handleCreateNewCV = () => {
+    hasAutoloadedRef.current = true;
     setProfile({
       id: 'cv_' + Date.now(),
       fullName: "",
@@ -2152,48 +2162,53 @@ export default function App() {
 
                 {userResumes.length > 0 ? (
                   <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-                    {userResumes.map((cv) => {
-                      const cvSnapshot = cv.unlockedSnapshot;
-                      const cvIsUnlocked = cvSnapshot 
-                        ? getProfileDataSnapshot(cv) === cvSnapshot 
-                        : false;
+                    {(() => {
+                      const reversedResumes = [...userResumes].reverse();
+                      return reversedResumes.map((cv) => {
+                        const originalIdx = userResumes.indexOf(cv);
+                        const cvNum = originalIdx + 1;
+                        const cvSnapshot = cv.unlockedSnapshot;
+                        const cvIsUnlocked = cvSnapshot 
+                          ? getProfileDataSnapshot(cv) === cvSnapshot 
+                          : false;
 
-                      const isCurrentActive = cv.id === profile.id;
+                        const isCurrentActive = cv.id === profile.id;
 
-                      return (
-                        <div 
-                          key={cv.id} 
-                          className={`p-4 rounded-xl border transition-all ${
-                            isCurrentActive 
-                              ? 'bg-violet-950/10 border-violet-500/30 shadow-md shadow-violet-500/5' 
-                              : 'bg-zinc-950/80 border-zinc-900 hover:border-zinc-850'
-                          }`}
-                        >
-                          <div className={`flex justify-between items-start gap-2.5 ${lang === 'ar' ? 'flex-row-reverse' : 'flex-row'}`}>
-                            <div className={`space-y-1 min-w-0 flex-1 ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-xs font-bold text-white font-sans truncate block max-w-[150px]">
-                                  {cv.fullName || (lang === 'ar' ? 'سيرة ذاتية جديدة' : 'New Resume Draft')}
-                                </span>
-                                {isCurrentActive && (
-                                  <span className="px-1.5 py-0.5 rounded text-[9px] bg-violet-605/20 text-violet-400 border border-violet-500/20 font-bold shrink-0">
-                                    {lang === 'ar' ? 'النشطة' : 'Active'}
+                        return (
+                          <div 
+                            key={cv.id} 
+                            className={`p-4 rounded-xl border transition-all ${
+                              isCurrentActive 
+                                ? 'bg-violet-950/10 border-violet-500/30 shadow-md shadow-violet-500/5' 
+                                : 'bg-zinc-950/80 border-zinc-900 hover:border-zinc-850'
+                            }`}
+                          >
+                            <div className={`flex justify-between items-start gap-2.5 ${lang === 'ar' ? 'flex-row-reverse' : 'flex-row'}`}>
+                              <div className={`space-y-1 min-w-0 flex-1 ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-xs font-bold text-white font-sans truncate block max-w-[150px]">
+                                    {lang === 'ar' ? `سيرة #${cvNum}: ` : `CV #${cvNum}: `}
+                                    {cv.fullName || (lang === 'ar' ? 'مسودة سيرة ذاتية' : 'New Resume Draft')}
                                   </span>
-                                )}
+                                  {isCurrentActive && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] bg-violet-605/20 text-violet-400 border border-violet-500/20 font-bold shrink-0">
+                                      {lang === 'ar' ? 'النشطة' : 'Active'}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-zinc-400 font-sans truncate">
+                                  {cv.jobTitle || (lang === 'ar' ? 'جاري الاستكمال...' : 'In preparation...')}
+                                </div>
                               </div>
-                              <div className="text-[10px] text-zinc-400 font-sans truncate">
-                                {cv.jobTitle || (lang === 'ar' ? 'جاري الاستكمال...' : 'In preparation...')}
-                              </div>
-                            </div>
 
-                            {/* LOCK / UNLOCK BADGE */}
-                            {cvIsUnlocked && (
-                              <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-sans flex items-center gap-1 shrink-0">
-                                <Check className="w-3 h-3" />
-                                {lang === 'ar' ? 'مفتوحة للتحميل' : 'Ready to Download'}
-                              </span>
-                            )}
-                          </div>
+                              {/* LOCK / UNLOCK BADGE */}
+                              {cvIsUnlocked && (
+                                <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-sans flex items-center gap-1 shrink-0">
+                                  <Check className="w-3 h-3" />
+                                  {lang === 'ar' ? 'مفتوحة للتحميل' : 'Ready to Download'}
+                                </span>
+                              )}
+                            </div>
 
                           {/* ACTION TRIGGERS IN ROW */}
                           <div className={`mt-3 flex gap-2 justify-end ${lang === 'ar' ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -2235,7 +2250,8 @@ export default function App() {
                           </div>
                         </div>
                       );
-                    })}
+                      });
+                    })()}
                   </div>
                 ) : (
                   <div className="bg-zinc-950/60 border border-zinc-910 p-5 rounded-xl text-center space-y-3">

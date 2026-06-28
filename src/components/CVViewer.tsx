@@ -1566,15 +1566,6 @@ export function CVViewer({ t, lang, profile, onSelectTemplate, unlocked, onIniti
             <Image className="w-4 h-4 text-emerald-100" />
             {lang === 'ar' ? 'تحميل كصورة (فائق الدقة)' : 'Download Image'}
           </button>
-          <button
-            onClick={() => handleDownloadAttempt('docx')}
-            disabled={copiedText}
-            className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-750 border border-zinc-700 text-zinc-200 font-bold text-xs flex items-center gap-2 transition-all active:scale-95"
-            id="unlocked-word-download-btn"
-          >
-            <FileText className="w-4 h-4 text-blue-400" />
-            {lang === 'ar' ? 'تحميل كـ Word' : 'Download DOCX'}
-          </button>
 
           {onSaveProfile && (
             <button
