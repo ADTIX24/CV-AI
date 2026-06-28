@@ -274,7 +274,7 @@ export async function exportToPNG(elementId?: string): Promise<string> {
   cloned.style.setProperty('margin', '0', 'important');
   cloned.style.setProperty('box-sizing', 'border-box', 'important');
   cloned.style.setProperty('display', 'block', 'important');
-  cloned.style.setProperty('position', 'absolute', 'important');
+  cloned.style.setProperty('position', 'relative', 'important');
   cloned.style.setProperty('top', '0', 'important');
   cloned.style.setProperty('left', '0', 'important');
 
@@ -310,7 +310,15 @@ export async function exportToPNG(elementId?: string): Promise<string> {
         style: {
           transform: 'none',
           margin: '0',
-          position: 'absolute',
+          position: 'relative',
+          width: '794px',
+          height: '1123px',
+          minWidth: '794px',
+          maxWidth: '794px',
+          minHeight: '1123px',
+          maxHeight: '1123px',
+          boxSizing: 'border-box',
+          display: 'block',
           top: '0',
           left: '0'
         }
