@@ -236,242 +236,34 @@ function withSanitizedStyles<T>(element: HTMLElement, action: () => Promise<T>):
  * Captures the specified element as a high-quality PNG data URL
  */
 export async function exportToPNG(elementId?: string): Promise<string> {
-  const originalElement = document.getElementById(elementId || 'cv-preview-a4') || 
-                          document.getElementById('cv-rendered-document-face') || 
-                          document.querySelector('[id^="cv-preview"]') as HTMLElement;
+  const element = document.getElementById(elementId || 'cv-preview-a4') || 
+                  document.getElementById('cv-rendered-document-face') || 
+                  document.querySelector('[id^="cv-preview"]') as HTMLElement;
                   
-  if (!originalElement) {
+  if (!element) {
     throw new Error("Preview element not found");
   }
 
-  // Detect the actual direction (rtl for Arabic, ltr for English) of the target element
-  const currentDir = originalElement.getAttribute('dir') || window.getComputedStyle(originalElement).direction || 'rtl';
-
-  // Deep clone the original element to preserve computed styles and HTML structures cleanly
-  const cloned = originalElement.cloneNode(true) as HTMLElement;
-  cloned.id = "cloned-cv-preview";
-
-  // 1. Create a completely isolated, hidden virtual iframe
-  const iframe = document.createElement('iframe');
-  iframe.style.position = 'fixed';
-  iframe.style.top = '-9999px';
-  iframe.style.left = '-9999px';
-  iframe.style.width = '794px';
-  iframe.style.height = '1123px';
-  iframe.style.border = 'none';
-  document.body.appendChild(iframe);
-
-  const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-  if (!iframeDoc) {
-    throw new Error("Failed to create isolated document");
-  }
-
-  // 2. Fetch all stylesheet and style tags to run inside the iframe
-  let stylesHtml = '';
-  document.querySelectorAll('style, link[rel="stylesheet"]').forEach((styleElement) => {
-    stylesHtml += styleElement.outerHTML;
-  });
-
-  // 3. Build the page inside iframe and inject strict layout rules to prevent any clipping from top or right
-  iframeDoc.open();
-  iframeDoc.write(`
-    <!DOCTYPE html>
-    <html dir="${currentDir}" lang="${currentDir === 'rtl' ? 'ar' : 'en'}">
-      <head>
-        <meta charset="UTF-8">
-        ${stylesHtml}
-        <style>
-          /* Force isolated environment dimensions without any distortion or margins */
-          body { 
-            margin: 0 !important; 
-            padding: 0 !important; 
-            background: #ffffff !important; 
-            width: 794px !important; 
-            height: 1123px !important; 
-            overflow: hidden !important; 
-            direction: ${currentDir} !important;
-            text-align: ${currentDir === 'rtl' ? 'right' : 'left'} !important;
-          }
-          
-          /* تثبيت حجم العنصر الرئيسي فقط ومنع أي إزاحة */
-          #cloned-cv-preview {
-            width: 794px !important;
-            height: 1123px !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            box-sizing: border-box !important;
-            overflow: hidden !important;
-            transform: scale(1) !important;
-            transform-origin: top left !important;
-            position: absolute !important;
-            top: 0 !important;
-            left: 0 !important;
-          }
-
-          /* منع أي تمدد تلقائي للصور واللوغو برؤية كوبايلوت */
-          img, svg {
-            max-width: 100% !important;
-            height: auto !important;
-            object-fit: contain !important;
-          }
-        </style>
-      </head>
-      <body dir="${currentDir}">
-      </body>
-    </html>
-  `);
-  iframeDoc.close();
-
-  // Inject cloned element inside the body of the isolated iframe
-  const iframeBody = iframeDoc.body;
-  iframeBody.appendChild(cloned);
-
-  // تطبيق الأبعاد الحقيقية الصارمة على الحاوية الخارجية فقط دون المساس بالعناصر الداخلية واللوغو
-  cloned.style.width = '794px';
-  cloned.style.height = '1123px';
-  cloned.style.margin = '0';
-  cloned.style.padding = '0';
-  cloned.style.boxSizing = 'border-box';
-  cloned.style.transform = 'scale(1)';
-  cloned.style.transformOrigin = 'top left';
-  cloned.style.overflow = 'hidden';
-  cloned.style.position = 'absolute';
-  cloned.style.left = '0';
-  cloned.style.top = '0';
-  cloned.setAttribute('dir', currentDir);
-  cloned.style.direction = currentDir;
-
-  // معالجة ألوان oklch فقط للعناصر الداخلية إن وجدت دون تغيير أبعادها ومقاساتها
-  cloned.querySelectorAll('*').forEach(el => {
-    const htmlEl = el as HTMLElement;
-    const styles = window.getComputedStyle(htmlEl);
-    if (styles.color && styles.color.includes('oklch')) {
-      htmlEl.style.color = 'rgb(31, 41, 55)';
-    }
-  });
-
-  if (iframeDoc.documentElement) {
-    iframeDoc.documentElement.setAttribute('dir', currentDir);
-  }
-  if (iframeDoc.body) {
-    iframeDoc.body.setAttribute('dir', currentDir);
-    iframeDoc.body.style.direction = currentDir;
-    iframeDoc.body.style.textAlign = currentDir === 'rtl' ? 'right' : 'left';
-  }
+  // حفظ الأنماط الأصلية للعنصر لإعادتها بدقة بعد اللقطة
+  const originalTransform = element.style.transform;
+  const originalTransformOrigin = element.style.transformOrigin;
+  const originalMargin = element.style.margin;
+  const originalPosition = element.style.position;
 
   try {
-    // Wait for fonts and complete DOM painting inside the new environment
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    if (iframeDoc.fonts) {
-      await iframeDoc.fonts.ready;
+    // انتظار تحميل الخطوط بالكامل في الصفحة لمنع الـ Reflow
+    if (document.fonts) {
+      await document.fonts.ready;
     }
 
-    // 4. Capture the clean dataUrl from cloned inside the iframe
-    const dataUrl = await htmlToImage.toPng(cloned, {
-      pixelRatio: 2,
-      cacheBust: true,
-      backgroundColor: '#ffffff'
-    });
+    // فرض الحجم الطبيعي الكامل (A4 الصافي) مؤقتاً قبل التصوير بقوة !important
+    element.style.setProperty('transform', 'scale(1)', 'important');
+    element.style.setProperty('transform-origin', 'top left', 'important');
+    element.style.position = 'relative';
+    element.style.margin = '0';
 
-    // Cleanup
-    document.body.removeChild(iframe);
-    return dataUrl;
-  } catch (error) {
-    // Cleanup if something goes wrong
-    if (document.body.contains(iframe)) {
-      document.body.removeChild(iframe);
-    }
-    throw error;
-  }
-}
-
-/**
- * دالة التصدير المباشرة لإنهاء مشكلة اللوغو والقص وتنزيل السيرة الذاتية بضغطة واحدة
- */
-export const downloadCV = async () => {
-  const originalElement = document.getElementById('cv-preview-a4');
-  if (!originalElement) return;
-
-  try {
-    // 1. كشف الاتجاه الحالي تلقائياً (RTL أو LTR)
-    const currentDir = originalElement.getAttribute('dir') || window.getComputedStyle(originalElement).direction || 'rtl';
-
-    // 2. الاستنساخ العميق للعنصر الأصلي
-    const cloned = originalElement.cloneNode(true) as HTMLElement;
-    cloned.id = "cloned-cv-preview";
-
-    // 3. إنشاء الـ iFrame المخفي في الخلفية بنفس أبعاد الـ A4
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.top = '-9999px';
-    iframe.style.left = '-9999px';
-    iframe.style.width = '794px';
-    iframe.style.height = '1123px';
-    iframe.style.border = 'none';
-    document.body.appendChild(iframe);
-
-    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!iframeDoc) return;
-
-    // جلب كافة الستاينز والـ CSS من الصفحة الأساسية
-    let stylesHtml = '';
-    document.querySelectorAll('style, link[rel="stylesheet"]').forEach((styleElement) => {
-      stylesHtml += styleElement.outerHTML;
-    });
-
-    // 4. بناء هيكل المستند وتطبيق قواعد كوبايلوت الصارمة لحماية اللوغو والصور
-    iframeDoc.open();
-    iframeDoc.write(`
-      <!DOCTYPE html>
-      <html dir="${currentDir}" lang="${currentDir === 'rtl' ? 'ar' : 'en'}">
-        <head>
-          ${stylesHtml}
-          <style>
-            body { 
-              margin: 0 !important; 
-              padding: 0 !important; 
-              background: #ffffff !important; 
-              width: 794px !important; 
-              height: 1123px !important; 
-              overflow: hidden !important; 
-              direction: ${currentDir} !important;
-              text-align: ${currentDir === 'rtl' ? 'right' : 'left'} !important;
-            }
-            
-            /* تثبيت حجم العنصر الرئيسي فقط ومنع أي إزاحة */
-            #cloned-cv-preview {
-              width: 794px !important;
-              height: 1123px !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              box-sizing: border-box !important;
-              overflow: hidden !important;
-              transform: scale(1) !important;
-              transform-origin: top left !important;
-              position: absolute !important;
-              top: 0 !important;
-              left: 0 !important;
-            }
-
-            /* منع أي تمدد تلقائي للصور واللوغو برؤية كوبايلوت */
-            img, svg {
-              max-width: 100% !important;
-              height: auto !important;
-              object-fit: contain !important;
-            }
-          </style>
-        </head>
-        <body>
-        </body>
-      </html>
-    `);
-    iframeDoc.close();
-
-    // حقن العنصر المستنسخ (الصافي وبدون تعديل عناصره الداخلية)
-    iframeDoc.body.appendChild(cloned);
-
-    // معالجة ألوان oklch فقط دون المساس بالأبعاد والـ widths
-    cloned.querySelectorAll('*').forEach(el => {
+    // معالجة سريعة لألوان oklch للعناصر الداخلية في الصفحة الحية لمنع انهيار الرندر
+    element.querySelectorAll('*').forEach(el => {
       const htmlEl = el as HTMLElement;
       const styles = window.getComputedStyle(htmlEl);
       if (styles.color && styles.color.includes('oklch')) {
@@ -479,38 +271,111 @@ export const downloadCV = async () => {
       }
     });
 
-    // 5. انتظار تحميل الخطوط والصور لضمان منع الـ reflow
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    if (iframeDoc.fonts) await iframeDoc.fonts.ready;
+    // انتظار قصير جداً ليقوم المحرك بتثبيت الأبعاد الكاملة
+    await new Promise((resolve) => setTimeout(resolve, 400));
 
-    // 6. التقاط الصورة من العنصر المستنسخ نفسه بدقة عالية
-    const htmlToImage = (await import('html-to-image'));
-    const imgData = await htmlToImage.toPng(cloned, {
+    // التقاط الصورة مباشرة من العنصر الحي وبأبعاد قاطعة وثابتة
+    const imgData = await htmlToImage.toPng(element, {
+      width: 794,
+      height: 1123,
       pixelRatio: 2,
-      cacheBust: true
+      cacheBust: true,
+      style: {
+        transform: 'none',
+        zoom: '1',
+        margin: '0',
+        padding: '0'
+      }
     });
 
-    // 7. بناء الـ PDF بأبعاد مطابقة تماماً للصورة الناتجة
-    const { jsPDF } = await import('jspdf');
+    return imgData;
+  } catch (error) {
+    console.error("Error during Live Element PNG Export:", error);
+    throw error;
+  } finally {
+    // إعادة المعاينة لشكلها الطبيعي المتجاوب فوراً لكي لا يشعر المستخدم بأي تغيير على شاشة الموبايل
+    element.style.transform = originalTransform;
+    element.style.transformOrigin = originalTransformOrigin;
+    element.style.margin = originalMargin;
+    element.style.position = originalPosition;
+  }
+}
+
+/**
+ * دالة التصدير المباشرة لإنهاء مشكلة اللوغو والقص وتنزيل السيرة الذاتية بضغطة واحدة
+ */
+export const downloadCV = async () => {
+  // 1. جلب العنصر الحقيقي والحي من المعاينة مباشرة
+  const element = document.getElementById('cv-preview-a4');
+  if (!element) return;
+
+  // حفظ الأنماط الأصلية للعنصر لإعادتها بدقة بعد اللقطة
+  const originalTransform = element.style.transform;
+  const originalTransformOrigin = element.style.transformOrigin;
+  const originalMargin = element.style.margin;
+  const originalPosition = element.style.position;
+
+  try {
+    // 2. انتظار تحميل الخطوط بالكامل في الصفحة لمنع الـ Reflow
+    if (document.fonts) {
+      await document.fonts.ready;
+    }
+
+    // 3. فرض الحجم الطبيعي الكامل (A4 الصافي) مؤقتاً قبل التصوير بقوة !important
+    element.style.setProperty('transform', 'scale(1)', 'important');
+    element.style.setProperty('transform-origin', 'top left', 'important');
+    element.style.position = 'relative';
+    element.style.margin = '0';
+
+    // معالجة سريعة لألوان oklch للعناصر الداخلية في الصفحة الحية لمنع انهيار الرندر
+    element.querySelectorAll('*').forEach(el => {
+      const htmlEl = el as HTMLElement;
+      const styles = window.getComputedStyle(htmlEl);
+      if (styles.color && styles.color.includes('oklch')) {
+        htmlEl.style.color = 'rgb(31, 41, 55)';
+      }
+    });
+
+    // انتظار قصير جداً ليقوم المحرك بتثبيت الأبعاد الكاملة
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    // 4. التقاط الصورة مباشرة من العنصر الحي وبأبعاد قاطعة وثابتة
+    const imgData = await htmlToImage.toPng(element, {
+      width: 794,
+      height: 1123,
+      pixelRatio: 2,
+      cacheBust: true,
+      style: {
+        transform: 'none',
+        zoom: '1',
+        margin: '0',
+        padding: '0'
+      }
+    });
+
+    // 5. بناء مستند الـ PDF بأبعاد البكسل المطابقة للورقة الصافية
     const img = new Image();
     img.src = imgData;
     await img.decode();
 
     const pdf = new jsPDF({
-      orientation: 'p',
+      orientation: 'portrait',
       unit: 'px',
-      format: [img.width, img.height]
+      format: [794, 1123]
     });
 
-    pdf.addImage(imgData, 'PNG', 0, 0, img.width, img.height);
+    pdf.addImage(imgData, 'PNG', 0, 0, 794, 1123);
     pdf.save('cv-professional.pdf');
 
-    // تنظيف الـ DOM
-    document.body.removeChild(iframe);
-
   } catch (error) {
-    console.error("Error during perfect render:", error);
+    console.error("Error during Live Element Export:", error);
     window.print();
+  } finally {
+    // 6. إعادة المعاينة لشكلها الطبيعي المتجاوب فوراً لكي لا يشعر المستخدم بأي تغيير على شاشة الموبايل
+    element.style.transform = originalTransform;
+    element.style.transformOrigin = originalTransformOrigin;
+    element.style.margin = originalMargin;
+    element.style.position = originalPosition;
   }
 };
 
