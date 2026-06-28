@@ -236,53 +236,77 @@ function withSanitizedStyles<T>(element: HTMLElement, action: () => Promise<T>):
  * Captures the specified element as a high-quality PNG data URL
  */
 export async function exportToPNG(elementId?: string): Promise<string> {
-  const element = document.getElementById(elementId || 'cv-preview-a4') || 
-                  document.getElementById('cv-rendered-document-face') || 
-                  document.querySelector('[id^="cv-preview"]') as HTMLElement;
+  const originalElement = document.getElementById(elementId || 'cv-preview-a4') || 
+                          document.getElementById('cv-rendered-document-face') || 
+                          document.querySelector('[id^="cv-preview"]') as HTMLElement;
                   
-  if (!element) {
+  if (!originalElement) {
     throw new Error("Preview element not found");
   }
 
-  // حفظ الأنماط الأصلية للعنصر لإعادتها بدقة بعد اللقطة
-  const originalTransform = element.style.transform;
-  const originalTransformOrigin = element.style.transformOrigin;
-  const originalMargin = element.style.margin;
-  const originalPosition = element.style.position;
+  // 1. كشف الاتجاه الحالي تلقائياً لضمان لغة القالب
+  const currentDir = originalElement.getAttribute('dir') || window.getComputedStyle(originalElement).direction || 'rtl';
+
+  // 2. إنشاء حاوية معزولة ومخفية تماماً عن المستخدم ولكنها مفتوحة بالحجم الكامل في الـ DOM
+  const sandboxContainer = document.createElement('div');
+  sandboxContainer.style.position = 'absolute';
+  sandboxContainer.style.left = '-9999px';
+  sandboxContainer.style.top = '-9999px';
+  sandboxContainer.style.width = '794px';
+  sandboxContainer.style.height = '1123px';
+  sandboxContainer.style.overflow = 'hidden';
+  sandboxContainer.style.background = '#ffffff';
+  sandboxContainer.style.direction = currentDir;
+  
+  // 3. نسخ العنصر عميقاً وحقنه داخل الحاوية المعزولة
+  const cloned = originalElement.cloneNode(true) as HTMLElement;
+  cloned.id = "cloned-sandbox-cv";
+  
+  // تثبيت الأنماط الصارمة على القالب المستنسخ ليتطابق مع المعاينة الأصلية للكمبيوتر
+  cloned.style.width = '794px';
+  cloned.style.height = '1123px';
+  cloned.style.transform = 'none';
+  cloned.style.transformOrigin = 'top left';
+  cloned.style.margin = '0';
+  cloned.style.padding = '0';
+  cloned.style.boxSizing = 'border-box';
+  cloned.style.display = 'block';
+
+  sandboxContainer.appendChild(cloned);
+  document.body.appendChild(sandboxContainer);
 
   try {
-    // انتظار تحميل الخطوط بالكامل في الصفحة لمنع الـ Reflow
+    // 4. معالجة وحماية أبعاد الصور واللوغو والخطوط داخل الحاوية المعزولة
     if (document.fonts) {
       await document.fonts.ready;
     }
-
-    // فرض الحجم الطبيعي الكامل (A4 الصافي) مؤقتاً قبل التصوير بقوة !important
-    element.style.setProperty('transform', 'scale(1)', 'important');
-    element.style.setProperty('transform-origin', 'top left', 'important');
-    element.style.position = 'relative';
-    element.style.margin = '0';
-
-    // معالجة سريعة لألوان oklch للعناصر الداخلية في الصفحة الحية لمنع انهيار الرندر
-    element.querySelectorAll('*').forEach(el => {
+    
+    cloned.querySelectorAll('*').forEach(el => {
       const htmlEl = el as HTMLElement;
       const styles = window.getComputedStyle(htmlEl);
+      
+      // حماية ألوان oklch
       if (styles.color && styles.color.includes('oklch')) {
         htmlEl.style.color = 'rgb(31, 41, 55)';
       }
+      // تثبيت أبعاد الصور والشعارات الحقيقية بناءً على شكلها في المعاينة
+      if (htmlEl.tagName === 'IMG' || htmlEl.tagName === 'svg') {
+        htmlEl.style.maxWidth = '100%';
+        htmlEl.style.height = 'auto';
+      }
     });
 
-    // انتظار قصير جداً ليقوم المحرك بتثبيت الأبعاد الكاملة
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    // 🔥 أهم خطوة: منح المتصفح وقت كافي (600ms) لإتمام الـ Repaint الكامل للخطوط والتوزيع
+    await new Promise((resolve) => setTimeout(resolve, 600));
 
-    // التقاط الصورة مباشرة من العنصر الحي وبأبعاد قاطعة وثابتة
-    const imgData = await htmlToImage.toPng(element, {
+    // 5. التقاط اللوحة من العقدة المستقرة والمعزولة تماماً
+    const imgData = await htmlToImage.toPng(cloned, {
       width: 794,
       height: 1123,
       pixelRatio: 2,
       cacheBust: true,
       style: {
         transform: 'none',
-        zoom: '1',
         margin: '0',
         padding: '0'
       }
@@ -290,14 +314,13 @@ export async function exportToPNG(elementId?: string): Promise<string> {
 
     return imgData;
   } catch (error) {
-    console.error("Error during Live Element PNG Export:", error);
+    console.error("Error during Sandbox Element PNG Export:", error);
     throw error;
   } finally {
-    // إعادة المعاينة لشكلها الطبيعي المتجاوب فوراً لكي لا يشعر المستخدم بأي تغيير على شاشة الموبايل
-    element.style.transform = originalTransform;
-    element.style.transformOrigin = originalTransformOrigin;
-    element.style.margin = originalMargin;
-    element.style.position = originalPosition;
+    // 7. تنظيف الـ DOM وحذف الحاوية المؤقتة فوراً
+    if (document.body.contains(sandboxContainer)) {
+      document.body.removeChild(sandboxContainer);
+    }
   }
 }
 
@@ -305,59 +328,78 @@ export async function exportToPNG(elementId?: string): Promise<string> {
  * دالة التصدير المباشرة لإنهاء مشكلة اللوغو والقص وتنزيل السيرة الذاتية بضغطة واحدة
  */
 export const downloadCV = async () => {
-  // 1. جلب العنصر الحقيقي والحي من المعاينة مباشرة
-  const element = document.getElementById('cv-preview-a4');
-  if (!element) return;
+  const originalElement = document.getElementById('cv-preview-a4');
+  if (!originalElement) return;
 
-  // حفظ الأنماط الأصلية للعنصر لإعادتها بدقة بعد اللقطة
-  const originalTransform = element.style.transform;
-  const originalTransformOrigin = element.style.transformOrigin;
-  const originalMargin = element.style.margin;
-  const originalPosition = element.style.position;
+  // 1. كشف الاتجاه الحالي تلقائياً لضمان لغة القالب
+  const currentDir = originalElement.getAttribute('dir') || window.getComputedStyle(originalElement).direction || 'rtl';
+
+  // 2. إنشاء حاوية معزولة ومخفية تماماً عن المستخدم ولكنها مفتوحة بالحجم الكامل في الـ DOM
+  const sandboxContainer = document.createElement('div');
+  sandboxContainer.style.position = 'absolute';
+  sandboxContainer.style.left = '-9999px';
+  sandboxContainer.style.top = '-9999px';
+  sandboxContainer.style.width = '794px';
+  sandboxContainer.style.height = '1123px';
+  sandboxContainer.style.overflow = 'hidden';
+  sandboxContainer.style.background = '#ffffff';
+  sandboxContainer.style.direction = currentDir;
+  
+  // 3. نسخ العنصر عميقاً وحقنه داخل الحاوية المعزولة
+  const cloned = originalElement.cloneNode(true) as HTMLElement;
+  cloned.id = "cloned-sandbox-cv";
+  
+  // تثبيت الأنماط الصارمة على القالب المستنسخ ليتطابق مع المعاينة الأصلية للكمبيوتر
+  cloned.style.width = '794px';
+  cloned.style.height = '1123px';
+  cloned.style.transform = 'none';
+  cloned.style.transformOrigin = 'top left';
+  cloned.style.margin = '0';
+  cloned.style.padding = '0';
+  cloned.style.boxSizing = 'border-box';
+  cloned.style.display = 'block';
+
+  sandboxContainer.appendChild(cloned);
+  document.body.appendChild(sandboxContainer);
 
   try {
-    // 2. انتظار تحميل الخطوط بالكامل في الصفحة لمنع الـ Reflow
+    // 4. معالجة وحماية أبعاد الصور واللوغو والخطوط داخل الحاوية المعزولة
     if (document.fonts) {
       await document.fonts.ready;
     }
-
-    // 3. فرض الحجم الطبيعي الكامل (A4 الصافي) مؤقتاً قبل التصوير بقوة !important
-    element.style.setProperty('transform', 'scale(1)', 'important');
-    element.style.setProperty('transform-origin', 'top left', 'important');
-    element.style.position = 'relative';
-    element.style.margin = '0';
-
-    // معالجة سريعة لألوان oklch للعناصر الداخلية في الصفحة الحية لمنع انهيار الرندر
-    element.querySelectorAll('*').forEach(el => {
+    
+    cloned.querySelectorAll('*').forEach(el => {
       const htmlEl = el as HTMLElement;
       const styles = window.getComputedStyle(htmlEl);
+      
+      // حماية ألوان oklch
       if (styles.color && styles.color.includes('oklch')) {
         htmlEl.style.color = 'rgb(31, 41, 55)';
       }
+      // تثبيت أبعاد الصور والشعارات الحقيقية بناءً على شكلها في المعاينة
+      if (htmlEl.tagName === 'IMG' || htmlEl.tagName === 'svg') {
+        htmlEl.style.maxWidth = '100%';
+        htmlEl.style.height = 'auto';
+      }
     });
 
-    // انتظار قصير جداً ليقوم المحرك بتثبيت الأبعاد الكاملة
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    // 🔥 أهم خطوة: منح المتصفح وقت كافي (600ms) لإتمام الـ Repaint الكامل للخطوط والتوزيع
+    await new Promise((resolve) => setTimeout(resolve, 600));
 
-    // 4. التقاط الصورة مباشرة من العنصر الحي وبأبعاد قاطعة وثابتة
-    const imgData = await htmlToImage.toPng(element, {
+    // 5. التقاط اللوحة من العقدة المستقرة والمعزولة تماماً
+    const imgData = await htmlToImage.toPng(cloned, {
       width: 794,
       height: 1123,
       pixelRatio: 2,
       cacheBust: true,
       style: {
         transform: 'none',
-        zoom: '1',
         margin: '0',
         padding: '0'
       }
     });
 
-    // 5. بناء مستند الـ PDF بأبعاد البكسل المطابقة للورقة الصافية
-    const img = new Image();
-    img.src = imgData;
-    await img.decode();
-
+    // 6. توليد الـ PDF بأبعاد مطابقة بكسل ببكسل
     const pdf = new jsPDF({
       orientation: 'portrait',
       unit: 'px',
@@ -368,14 +410,13 @@ export const downloadCV = async () => {
     pdf.save('cv-professional.pdf');
 
   } catch (error) {
-    console.error("Error during Live Element Export:", error);
+    console.error("Error during Sandbox Element Export:", error);
     window.print();
   } finally {
-    // 6. إعادة المعاينة لشكلها الطبيعي المتجاوب فوراً لكي لا يشعر المستخدم بأي تغيير على شاشة الموبايل
-    element.style.transform = originalTransform;
-    element.style.transformOrigin = originalTransformOrigin;
-    element.style.margin = originalMargin;
-    element.style.position = originalPosition;
+    // 7. تنظيف الـ DOM وحذف الحاوية المؤقتة فوراً
+    if (document.body.contains(sandboxContainer)) {
+      document.body.removeChild(sandboxContainer);
+    }
   }
 };
 
