@@ -247,22 +247,38 @@ export async function exportToPNG(elementId?: string): Promise<string> {
   // 1. Detect the current direction to ensure template language is respected
   const currentDir = originalElement.getAttribute('dir') || window.getComputedStyle(originalElement).direction || 'rtl';
 
-  // 2. Create an isolated, completely hidden sandbox container appended to body
+  // 2. Create an isolated, completely hidden wrapper container to prevent document width explosion in RTL/Arabic
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'fixed';
+  wrapper.style.top = '0';
+  wrapper.style.left = '0';
+  wrapper.style.width = '0';
+  wrapper.style.height = '0';
+  wrapper.style.overflow = 'hidden';
+  wrapper.style.zIndex = '-9999';
+  wrapper.style.pointerEvents = 'none';
+
+  // 3. Create the sandbox container with strict A4 dimensions
   const sandboxContainer = document.createElement('div');
   sandboxContainer.style.position = 'absolute';
-  sandboxContainer.style.left = '-9999px';
-  sandboxContainer.style.top = '-9999px';
+  sandboxContainer.style.top = '0';
+  sandboxContainer.style.left = '0';
   sandboxContainer.style.width = '794px';
   sandboxContainer.style.height = '1123px';
-  sandboxContainer.style.overflow = 'hidden';
+  sandboxContainer.style.minWidth = '794px';
+  sandboxContainer.style.minHeight = '1123px';
+  sandboxContainer.style.maxWidth = '794px';
+  sandboxContainer.style.maxHeight = '1123px';
   sandboxContainer.style.background = '#ffffff';
+  sandboxContainer.style.overflow = 'hidden';
   sandboxContainer.style.direction = currentDir;
+  sandboxContainer.style.boxSizing = 'border-box';
   
-  // 3. Deep-clone the target element to prevent disturbing the live interactive preview
+  // 4. Deep-clone the target element to prevent disturbing the live interactive preview
   const cloned = originalElement.cloneNode(true) as HTMLElement;
   cloned.id = "cv-preview-a4"; // KEEP the ID exactly the same so CSS rules in stylesheets match perfectly!
   
-  // Apply strict styles to the cloned template to match the computer preview exactly
+  // Style the cloned node to occupy the exact dimensions of the sandbox
   cloned.style.setProperty('width', '794px', 'important');
   cloned.style.setProperty('height', '1123px', 'important');
   cloned.style.setProperty('min-width', '794px', 'important');
@@ -274,34 +290,78 @@ export async function exportToPNG(elementId?: string): Promise<string> {
   cloned.style.setProperty('margin', '0', 'important');
   cloned.style.setProperty('box-sizing', 'border-box', 'important');
   cloned.style.setProperty('display', 'block', 'important');
-  cloned.style.setProperty('position', 'relative', 'important');
+  cloned.style.setProperty('position', 'absolute', 'important');
   cloned.style.setProperty('top', '0', 'important');
   cloned.style.setProperty('left', '0', 'important');
 
+  // Stabilize and replace image nodes inside cloned to prevent html-to-image bugs
+  cloned.querySelectorAll('img').forEach(img => {
+    const currentSrc = img.getAttribute('src') || '';
+    if (!currentSrc) return;
+
+    // Use our server's proxy-image endpoint for external images to bypass CORS perfectly
+    const proxiedUrl = ((currentSrc.startsWith('http://') || currentSrc.startsWith('https://')) && !currentSrc.startsWith(window.location.origin))
+      ? `/api/proxy-image?url=${encodeURIComponent(currentSrc)}`
+      : currentSrc;
+
+    // Detect if this is the profile photo (uses class containing "object-cover")
+    if (img.classList.contains('object-cover') || img.className.includes('object-cover') || img.getAttribute('alt')?.toLowerCase().includes('portrait') || img.getAttribute('alt')?.toLowerCase().includes('photo')) {
+      // Create a styled div with background-image to avoid html-to-image's object-fit: cover rendering bug
+      const bgDiv = document.createElement('div');
+      bgDiv.className = img.className; // preserve original classes (including sizing, rounding, shadow)
+      bgDiv.style.width = '100%';
+      bgDiv.style.height = '100%';
+      bgDiv.style.backgroundImage = `url("${proxiedUrl}")`;
+      bgDiv.style.backgroundSize = 'cover';
+      bgDiv.style.backgroundPosition = 'center';
+      bgDiv.style.backgroundRepeat = 'no-repeat';
+      
+      // Replace the image with the background div
+      img.parentNode?.replaceChild(bgDiv, img);
+    } else {
+      // For other images (e.g., logo, icons), just set the proxied src
+      img.src = proxiedUrl;
+      img.style.maxWidth = '100%';
+      img.style.height = 'auto';
+    }
+  });
+
+  // Also resolve other elements with potential background images or SVGs
+  cloned.querySelectorAll('*').forEach(el => {
+    const htmlEl = el as HTMLElement;
+    if (htmlEl.tagName === 'svg') {
+      htmlEl.style.maxWidth = '100%';
+      htmlEl.style.height = 'auto';
+    }
+    if (htmlEl.style && htmlEl.style.backgroundImage) {
+      const bgImg = htmlEl.style.backgroundImage;
+      const match = bgImg.match(/url\((['"]?)(.*?)\1\)/);
+      if (match && match[2]) {
+        const currentSrc = match[2];
+        if ((currentSrc.startsWith('http://') || currentSrc.startsWith('https://')) && !currentSrc.startsWith(window.location.origin)) {
+          const proxiedUrl = `/api/proxy-image?url=${encodeURIComponent(currentSrc)}`;
+          htmlEl.style.backgroundImage = `url("${proxiedUrl}")`;
+        }
+      }
+    }
+  });
+
   sandboxContainer.appendChild(cloned);
-  document.body.appendChild(sandboxContainer);
+  wrapper.appendChild(sandboxContainer);
+  document.body.appendChild(wrapper);
 
   try {
-    // 4. Ensure all custom fonts are fully loaded to prevent any layout/text reflow shifts
+    // 5. Ensure all custom fonts are fully loaded to prevent any layout/text reflow shifts
     if (document.fonts) {
       await document.fonts.ready;
     }
-    
-    // Stabilize internal image dimensions
-    cloned.querySelectorAll('*').forEach(el => {
-      const htmlEl = el as HTMLElement;
-      if (htmlEl.tagName === 'IMG' || htmlEl.tagName === 'svg') {
-        htmlEl.style.maxWidth = '100%';
-        htmlEl.style.height = 'auto';
-      }
-    });
 
     // Give the layout engine a safe frame (350ms) to recalculate bounding boxes inside the sandbox
     await new Promise((resolve) => setTimeout(resolve, 350));
 
-    // 5. Capture the sandboxed element inside withSanitizedStyles which converts oklch colors on-the-fly
-    const imgData = await withSanitizedStyles(cloned, async () => {
-      return await htmlToImage.toPng(cloned, {
+    // 6. Capture the sandboxContainer itself inside withSanitizedStyles which converts oklch colors on-the-fly
+    const imgData = await withSanitizedStyles(sandboxContainer, async () => {
+      return await htmlToImage.toPng(sandboxContainer, {
         width: 794,
         height: 1123,
         pixelRatio: 2.5, // Crisp 2.5x high-fidelity density (300DPI Studio style)
@@ -310,7 +370,7 @@ export async function exportToPNG(elementId?: string): Promise<string> {
         style: {
           transform: 'none',
           margin: '0',
-          position: 'relative',
+          position: 'absolute',
           width: '794px',
           height: '1123px',
           minWidth: '794px',
@@ -330,9 +390,9 @@ export async function exportToPNG(elementId?: string): Promise<string> {
     console.error("Error during Sandbox Node PNG Export:", error);
     throw error;
   } finally {
-    // 6. Instantly clean up the DOM sandbox container
-    if (document.body.contains(sandboxContainer)) {
-      document.body.removeChild(sandboxContainer);
+    // 7. Instantly clean up the DOM wrapper
+    if (document.body.contains(wrapper)) {
+      document.body.removeChild(wrapper);
     }
   }
 }
